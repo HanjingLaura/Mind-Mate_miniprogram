@@ -1,0 +1,61 @@
+<!-- 设置页 — 作息时间调整 + VIP 状态 -->
+<view class="settings-page">
+  <view class="settings-section">
+    <text class="section-title">监督作息时间</text>
+    <text class="section-desc">调整后大模型将在你设定的时间点主动催促</text>
+
+    <view class="time-item">
+      <view class="time-label">
+        <text class="label-icon">🌅</text>
+        <text class="label-text">晨间唤醒</text>
+      </view>
+      <picker mode="time" value="{{morningTime}}" bindchange="onMorningChange">
+        <text class="time-value">{{morningTime}}</text>
+      </picker>
+    </view>
+
+    <view class="time-item">
+      <view class="time-label">
+        <text class="label-icon">⚡</text>
+        <text class="label-text">午后狙击</text>
+      </view>
+      <picker mode="time" value="{{afternoonTime}}" bindchange="onAfternoonChange">
+        <view class="time-value-wrap">
+          <text class="time-value">{{afternoonTime}}</text>
+          <text class="vip-badge" wx:if="{{!isVip}}">VIP</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="time-item">
+      <view class="time-label">
+        <text class="label-icon">🌙</text>
+        <text class="label-text">晚间清算</text>
+      </view>
+      <picker mode="time" value="{{eveningTime}}" bindchange="onEveningChange">
+        <view class="time-value-wrap">
+          <text class="time-value">{{eveningTime}}</text>
+          <text class="vip-badge" wx:if="{{!isVip}}">VIP</text>
+        </view>
+      </picker>
+    </view>
+  </view>
+
+  <view class="settings-section">
+    <text class="section-title">VIP 状态</text>
+    <view class="vip-status">
+      <text class="vip-label">{{isVip ? '已激活' : '未激活'}}</text>
+      <text class="tag {{isVip ? 'tag-vip' : ''}}">{{isVip ? 'VIP' : '普通'}}</text>
+    </view>
+    <button
+      class="btn-primary"
+      wx:if="{{!isVip}}"
+      bindtap="onUpgradeTap"
+    >升级 VIP ¥1.99</button>
+  </view>
+
+  <!-- 隐蔽的管理员入口 -->
+  <view class="admin-entry" bindtap="onAdminTap">
+    <text class="admin-text">关于</text>
+  </view>
+</view>

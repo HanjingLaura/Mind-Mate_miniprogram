@@ -1,0 +1,83 @@
+"""数据库模型定义
+
+扩展方向：
+- 新增 Achievement 模型做成就系统
+- 新增 Streak 模型记录连续打卡
+- DailyTask 增加 priority / category 字段
+"""
+
+from datetime import datetime, time
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Time, Date
+from sqlalchemy.orm import relationship
+
+from database import Base
+
+
+class User(Base):
+    """用户模型 — 包含自定义作息时间和 VIP 状态"""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    openid = Column(String(128), unique=True, index=True, nullable=False, comment="微信 openid")
+    nickname = Column(String(64), default="", comment="用户昵称")
+    avatar_url = Column(String(512), default="", comment="头像 URL")
+
+    # 自定义三段式监督时间
+    morning_time = Column(Time, default=time(10, 0), comment="晨间唤醒时间")
+    afternoon_time = Column(Time, default=time(16, 0), comment="午后借口狙击时间")
+    evening_time = Column(Time, default=time(21, 0), comment="晚间终局清算时间")
+
+    # VIP 状态
+    is_vip = Column(Boolean, default=False, comment="是否为 VIP 用户")
+    vip_expire_at = Column(DateTime, nullable=True, comment="VIP 过期时间")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 关系
+    daily_tasks = relationship("DailyTask", back_populates="user", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+
+
+class DailyTask(Base):
+    """每日任务模型 — 由 LLM 从聊天中拆解生成"""
+    __tablename__ = "daily_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    task_date = Column(Date, nullable=False, comment="任务所属日期")
+    goal = Column(String(256), default="", comment="当日总目标")
+    content = Column(Text, default="", comment="子任务内容")
+    is_completed = Column(Boolean, default=False, comment="是否完成")
+    completed_at = Column(DateTime, nullable=True, comment="完成时间")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="daily_tasks")
+
+
+class Conversation(Base):
+    """对话模型 — 按日期归档"""
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    date = Column(Date, nullable=False, comment="对话日期")
+    title = Column(String(128), default="", comment="对话标题（如目标名）")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="conversations")
+    messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+
+
+class Message(Base):
+    """消息模型 — 单条聊天记录"""
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    role = Column(String(16), nullable=False, comment="user / assistant")
+    content = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    conversation = relationship("Conversation", back_populates="messages")

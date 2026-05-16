@@ -1,0 +1,167 @@
+/* 聊天主页样式 */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+}
+
+/* 聊天区域 */
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 16rpx;
+  padding-bottom: 16rpx;
+}
+
+.messages {
+  padding-bottom: 32rpx;
+}
+
+/* 输入区域 */
+.input-area {
+  padding: 16rpx 32rpx;
+  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.02);
+  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.chat-input {
+  flex: 1;
+  height: 80rpx;
+  padding: 0 24rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 40rpx;
+  color: #e0e0e0;
+  font-size: 28rpx;
+}
+
+.input-placeholder {
+  color: #555;
+}
+
+.send-btn {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.send-btn.active {
+  background: linear-gradient(135deg, #ff6b35, #ff4500);
+}
+
+.send-icon {
+  font-size: 36rpx;
+  color: #999;
+  font-weight: 700;
+}
+
+.send-btn.active .send-icon {
+  color: #fff;
+}
+
+/* 历史按钮 */
+.history-btn {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 16rpx);
+  right: 24rpx;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.history-icon {
+  font-size: 36rpx;
+  color: #999;
+}
+
+/* VIP 弹窗 */
+.vip-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vip-modal {
+  width: 600rpx;
+  background: #1a1a1a;
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vip-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #ffd700;
+  margin-bottom: 16rpx;
+}
+
+.vip-desc {
+  font-size: 26rpx;
+  color: #999;
+  text-align: center;
+  margin-bottom: 32rpx;
+}
+
+.vip-features {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-bottom: 32rpx;
+}
+
+.vip-feat {
+  font-size: 26rpx;
+  color: #e0e0e0;
+}
+
+.vip-price {
+  font-size: 40rpx;
+  font-weight: 800;
+  color: #ff6b35;
+  margin-bottom: 32rpx;
+}
+
+.vip-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.vip-actions .btn-primary {
+  width: 100%;
+}
+
+.vip-skip {
+  font-size: 24rpx;
+  color: #666;
+  padding: 8rpx;
+}

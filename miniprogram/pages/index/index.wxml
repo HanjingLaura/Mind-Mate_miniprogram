@@ -1,0 +1,81 @@
+<!-- 心智同行 聊天主页 -->
+<view class="page-container">
+  <!-- 任务看板 -->
+  <task-board
+    openid="{{openid}}"
+    bind:adminTrigger="onAdminTrigger"
+  />
+
+  <!-- 聊天区域 -->
+  <scroll-view
+    class="chat-area"
+    scroll-y
+    scroll-into-view="{{scrollTarget}}"
+    scroll-with-animation
+  >
+    <view class="messages">
+      <block wx:for="{{messages}}" wx:key="id">
+        <chat-bubble
+          role="{{item.role}}"
+          content="{{item.content}}"
+          isTyping="{{item.isTyping}}"
+        />
+      </block>
+      <!-- AI 正在输入 -->
+      <chat-bubble
+        wx:if="{{isStreaming && !streamingContent}}"
+        role="assistant"
+        content=""
+        isTyping="{{true}}"
+      />
+      <chat-bubble
+        wx:if="{{isStreaming && streamingContent}}"
+        role="assistant"
+        content="{{streamingContent}}"
+      />
+    </view>
+    <view id="scroll-bottom"></view>
+  </scroll-view>
+
+  <!-- VIP 弹窗 -->
+  <view class="vip-overlay" wx:if="{{showVipModal}}" bindtap="closeVipModal">
+    <view class="vip-modal" catchtap="">
+      <text class="vip-title">全天候监督</text>
+      <text class="vip-desc">升级 VIP 解锁午后借口狙击 + 晚间终局清算</text>
+      <view class="vip-features">
+        <text class="vip-feat">✦ 三段式主动监督</text>
+        <text class="vip-feat">✦ 昨日翻旧账吐槽</text>
+        <text class="vip-feat">✦ 专属硬核催促策略</text>
+      </view>
+      <text class="vip-price">¥1.99 体验包</text>
+      <view class="vip-actions">
+        <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
+        <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 输入区域 -->
+  <view class="input-area">
+    <view class="input-row">
+      <input
+        class="chat-input"
+        placeholder="说说你的目标..."
+        placeholder-class="input-placeholder"
+        value="{{inputText}}"
+        bindinput="onInput"
+        bindconfirm="onSend"
+        confirm-type="send"
+        disabled="{{isStreaming}}"
+      />
+      <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="onSend">
+        <text class="send-icon">↑</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 右上角历史按钮 -->
+  <view class="history-btn" bindtap="onHistoryTap">
+    <text class="history-icon">☰</text>
+  </view>
+</view>

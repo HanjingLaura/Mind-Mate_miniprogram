@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "心智同行",
+  "usingComponents": {
+    "task-board": "/components/task-board/task-board",
+    "chat-bubble": "/components/chat-bubble/chat-bubble"
+  }
+}

@@ -1,0 +1,14 @@
+<!-- 聊天气泡组件 -->
+<view class="bubble {{role === 'user' ? 'bubble-user' : 'bubble-ai'}}">
+  <view class="avatar" wx:if="{{role === 'assistant'}}">
+    <text class="avatar-text">损</text>
+  </view>
+  <view class="bubble-content">
+    <text class="bubble-text" user-select="{{true}}">{{content}}</text>
+    <view class="typing-indicator" wx:if="{{isTyping}}">
+      <view class="dot"></view>
+      <view class="dot"></view>
+      <view class="dot"></view>
+    </view>
+  </view>
+</view>

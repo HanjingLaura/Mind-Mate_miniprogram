@@ -1,0 +1,23 @@
+# Python 后端隔离
+backend/.env
+backend/*.db
+backend/*.sqlite3
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+*.pyc
+
+# 微信小程序前端隔离
+miniprogram/.project.config.json
+miniprogram/project.private.config.json
+miniprogram/node_modules/
+miniprogram/miniprogram_npm/
+
+# 系统与编辑器
+.DS_Store
+.vscode/
+.idea/
+
+# 环境与密钥
+*.env
+!.env.example

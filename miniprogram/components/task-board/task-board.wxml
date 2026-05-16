@@ -1,0 +1,37 @@
+<!-- 今日任务打卡看板组件 -->
+<view class="task-board">
+  <view class="board-header" bindtap="onHeaderTap">
+    <text class="board-title">今日战报</text>
+    <view class="board-stats">
+      <text class="stat-done">{{completedCount}}</text>
+      <text class="stat-sep">/</text>
+      <text class="stat-total">{{totalCount}}</text>
+    </view>
+  </view>
+
+  <view class="task-list" wx:if="{{tasks.length > 0}}">
+    <view
+      class="task-item {{item.is_completed ? 'completed' : ''}}"
+      wx:for="{{tasks}}"
+      wx:key="id"
+      bindtap="onTaskTap"
+      data-id="{{item.id}}"
+      data-index="{{index}}"
+    >
+      <view class="task-check">
+        <view class="check-box {{item.is_completed ? 'checked' : ''}}">
+          <text wx:if="{{item.is_completed}}">✓</text>
+        </view>
+      </view>
+      <view class="task-content">
+        <text class="task-text">{{item.content}}</text>
+        <text class="task-goal" wx:if="{{item.goal}}">{{item.goal}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty-tasks" wx:else>
+    <text class="empty-icon">📋</text>
+    <text class="empty-text">暂无任务，和我说说你的目标吧</text>
+  </view>
+</view>

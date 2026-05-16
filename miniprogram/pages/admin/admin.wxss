@@ -1,0 +1,87 @@
+/* 管理员页面 */
+.admin-page {
+  min-height: 100vh;
+  background: #0a0a0a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+}
+
+.admin-card {
+  width: 100%;
+  max-width: 600rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 24rpx;
+  padding: 48rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.card-icon {
+  font-size: 64rpx;
+  margin-bottom: 16rpx;
+}
+
+.card-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #ffd700;
+  margin-bottom: 12rpx;
+}
+
+.card-desc {
+  font-size: 24rpx;
+  color: #888;
+  text-align: center;
+  margin-bottom: 40rpx;
+}
+
+.input-group {
+  width: 100%;
+  margin-bottom: 32rpx;
+}
+
+.secret-input {
+  width: 100%;
+  height: 88rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12rpx;
+  padding: 0 24rpx;
+  color: #e0e0e0;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.btn-primary {
+  width: 100%;
+  margin-bottom: 24rpx;
+}
+
+.btn-primary.disabled {
+  opacity: 0.4;
+}
+
+.result-text {
+  font-size: 26rpx;
+  text-align: center;
+}
+
+.result-text.success {
+  color: #4ade80;
+}
+
+.result-text.error {
+  color: #ff6b35;
+}
+
+.admin-footer {
+  margin-top: 64rpx;
+}
+
+.footer-text {
+  font-size: 22rpx;
+  color: #333;
+}

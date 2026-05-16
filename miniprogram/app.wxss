@@ -1,0 +1,66 @@
+/** 全局样式 — 极简克制的硬核工科视觉 */
+
+page {
+  background-color: #0a0a0a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-size: 28rpx;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+
+.container {
+  padding: 0 32rpx;
+}
+
+/* 通用按钮 */
+.btn-primary {
+  background: linear-gradient(135deg, #ff6b35, #ff4500);
+  color: #fff;
+  border: none;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  padding: 24rpx 48rpx;
+  text-align: center;
+}
+
+.btn-primary::after {
+  border: none;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #ff6b35;
+  border: 2rpx solid #ff6b35;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  padding: 20rpx 40rpx;
+  text-align: center;
+}
+
+.btn-ghost::after {
+  border: none;
+}
+
+/* 分割线 */
+.divider {
+  height: 1rpx;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 24rpx 0;
+}
+
+/* 标签 */
+.tag {
+  display: inline-block;
+  font-size: 22rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 6rpx;
+  background: rgba(255, 107, 53, 0.15);
+  color: #ff6b35;
+}
+
+.tag-vip {
+  background: rgba(255, 215, 0, 0.15);
+  color: #ffd700;
+}

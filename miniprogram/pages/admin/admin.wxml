@@ -1,0 +1,36 @@
+<!-- 管理员/种子用户 内测激活页 -->
+<view class="admin-page">
+  <view class="admin-card">
+    <text class="card-icon">🔑</text>
+    <text class="card-title">内测特权通道</text>
+    <text class="card-desc">输入内测暗号，免费开启全天候监督</text>
+
+    <view class="input-group">
+      <input
+        class="secret-input"
+        placeholder="输入内测暗号..."
+        placeholder-class="input-placeholder"
+        password="{{true}}"
+        value="{{secretKey}}"
+        bindinput="onKeyInput"
+      />
+    </view>
+
+    <button
+      class="btn-primary {{secretKey ? '' : 'disabled'}}"
+      bindtap="onActivate"
+      disabled="{{!secretKey || activating}}"
+      loading="{{activating}}"
+    >
+      {{activating ? '激活中...' : '激活 VIP'}}
+    </button>
+
+    <text class="result-text {{resultSuccess ? 'success' : 'error'}}" wx:if="{{resultText}}">
+      {{resultText}}
+    </text>
+  </view>
+
+  <view class="admin-footer">
+    <text class="footer-text">Mind-Mate 内部测试通道 v0.1</text>
+  </view>
+</view>
