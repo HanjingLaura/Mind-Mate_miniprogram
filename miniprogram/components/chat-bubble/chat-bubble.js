@@ -11,6 +11,10 @@ Component({
       type: String,
       value: ''
     },
+    time: {
+      type: String,
+      value: ''
+    },
     isTyping: {
       type: Boolean,
       value: false

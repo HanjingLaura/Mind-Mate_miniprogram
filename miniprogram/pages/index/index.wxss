@@ -1,9 +1,48 @@
-/* 聊天主页样式 */
+/* 聊天主页样式 — 仿微信白色主题 */
 .page-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   position: relative;
+  background: #ededed;
+}
+
+/* 导航栏 */
+.nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 88rpx;
+  background: #ededed;
+  border-bottom: 1rpx solid #d9d9d9;
+}
+
+.nav-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.nav-actions {
+  position: absolute;
+  right: 24rpx;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.nav-btn {
+  width: 64rpx;
+  height: 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.nav-icon {
+  font-size: 36rpx;
+  color: #666;
 }
 
 /* 聊天区域 */
@@ -18,12 +57,39 @@
   padding-bottom: 32rpx;
 }
 
+/* 加载更多 */
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 16rpx 0;
+}
+
+.load-more-text {
+  font-size: 24rpx;
+  color: #999;
+}
+
+/* 日期分隔符 */
+.date-divider {
+  display: flex;
+  justify-content: center;
+  margin: 24rpx 0 16rpx;
+}
+
+.date-text {
+  font-size: 22rpx;
+  color: #999;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 4rpx 20rpx;
+  border-radius: 8rpx;
+}
+
 /* 输入区域 */
 .input-area {
-  padding: 16rpx 32rpx;
-  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1rpx solid rgba(255, 255, 255, 0.06);
+  padding: 12rpx 24rpx;
+  padding-bottom: calc(12rpx + env(safe-area-inset-bottom));
+  background: #f7f7f7;
+  border-top: 1rpx solid #d9d9d9;
 }
 
 .input-row {
@@ -34,23 +100,24 @@
 
 .chat-input {
   flex: 1;
-  height: 80rpx;
+  height: 72rpx;
   padding: 0 24rpx;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 40rpx;
-  color: #e0e0e0;
+  background: #fff;
+  border-radius: 8rpx;
+  color: #333;
   font-size: 28rpx;
+  border: 1rpx solid #e0e0e0;
 }
 
 .input-placeholder {
-  color: #555;
+  color: #bbb;
 }
 
 .send-btn {
-  width: 80rpx;
-  height: 80rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 8rpx;
+  background: #e0e0e0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,7 +125,7 @@
 }
 
 .send-btn.active {
-  background: linear-gradient(135deg, #ff6b35, #ff4500);
+  background: #07c160;
 }
 
 .send-icon {
@@ -71,26 +138,6 @@
   color: #fff;
 }
 
-/* 历史按钮 */
-.history-btn {
-  position: fixed;
-  top: calc(env(safe-area-inset-top) + 16rpx);
-  right: 24rpx;
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-
-.history-icon {
-  font-size: 36rpx;
-  color: #999;
-}
-
 /* VIP 弹窗 */
 .vip-overlay {
   position: fixed;
@@ -98,7 +145,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.5);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -107,7 +154,7 @@
 
 .vip-modal {
   width: 600rpx;
-  background: #1a1a1a;
+  background: #fff;
   border-radius: 24rpx;
   padding: 48rpx 40rpx;
   display: flex;
@@ -118,13 +165,13 @@
 .vip-title {
   font-size: 36rpx;
   font-weight: 700;
-  color: #ffd700;
+  color: #333;
   margin-bottom: 16rpx;
 }
 
 .vip-desc {
   font-size: 26rpx;
-  color: #999;
+  color: #888;
   text-align: center;
   margin-bottom: 32rpx;
 }
@@ -132,19 +179,19 @@
 .vip-features {
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
+  gap: 16rpx;
   margin-bottom: 32rpx;
 }
 
 .vip-feat {
   font-size: 26rpx;
-  color: #e0e0e0;
+  color: #555;
 }
 
 .vip-price {
   font-size: 40rpx;
   font-weight: 800;
-  color: #ff6b35;
+  color: #07c160;
   margin-bottom: 32rpx;
 }
 
@@ -162,6 +209,6 @@
 
 .vip-skip {
   font-size: 24rpx;
-  color: #666;
+  color: #999;
   padding: 8rpx;
 }

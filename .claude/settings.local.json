@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv venv)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(venv/Scripts/pip list *)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/openapi.json)",
+      "Bash(python -c \"import sys,json; paths=json.load\\(sys.stdin\\)['paths']; [print\\(f'{m.upper\\(\\)} {p}'\\) for p in sorted\\(paths\\) for m in paths[p]]\")",
+      "Bash(venv/Scripts/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload)",
+      "Bash(curl -s -X POST http://localhost:8000/api/user/login -H \"Content-Type: application/json\" -d '{\"openid\":\"test_user\",\"nickname\":\"测试\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/tasks/add -H \"Content-Type: application/json\" -d '{\"openid\":\"test_user\",\"goal\":\"学习CSS\",\"content\":\"完成CSS基础练习\"}')",
+      "Bash(curl -s http://localhost:8000/api/tasks/today/test_user)",
+      "Bash(curl *)",
+      "Bash(venv/Scripts/python -c ' *)"
+    ]
+  }
+}

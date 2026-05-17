@@ -1,31 +1,52 @@
 // Mind-Mate 小程序入口
 App({
   onLaunch() {
-    // 静默登录
-    this.login()
+    this.loginReady = this.login()
   },
 
   login() {
-    wx.login({
-      success: (res) => {
-        if (res.code) {
-          // 将 code 发送到后端换取 openid
-          // MVP 阶段：前端模拟 openid，生产环境需后端通过 code2session 获取
-          this.globalData.openid = 'user_' + res.code
-          console.log('[App] 登录成功', this.globalData.openid)
+    return new Promise((resolve) => {
+      wx.login({
+        success: (res) => {
+          if (res.code) {
+            this.globalData.openid = 'user_' + res.code
+            this.globalData.isDevMode = false
+            console.log('[App] 登录成功', this.globalData.openid)
+            resolve()
+          } else {
+            this._fallbackLogin()
+            resolve()
+          }
+        },
+        fail: () => {
+          this._fallbackLogin()
+          resolve()
         }
-      },
-      fail: (err) => {
-        console.error('[App] 登录失败', err)
-        // 降级处理：使用本地生成的临时 ID
-        this.globalData.openid = 'dev_' + Date.now()
-      }
+      })
     })
+  },
+
+  _fallbackLogin() {
+    let openid = wx.getStorageSync('fallback_openid')
+    if (openid) {
+      this.globalData.openid = openid
+    } else {
+      openid = 'dev_' + this._randomId()
+      this.globalData.openid = openid
+      wx.setStorageSync('fallback_openid', openid)
+    }
+    this.globalData.isDevMode = true
+    console.log('[App] 开发模式', openid)
+  },
+
+  _randomId() {
+    return Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
   },
 
   globalData: {
     openid: '',
-    apiBase: 'http://localhost:8000', // 开发环境地址，生产替换
+    apiBase: 'http://localhost:8000',
     isVip: false,
+    isDevMode: false,
   }
 })

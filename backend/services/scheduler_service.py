@@ -11,7 +11,7 @@ from datetime import datetime, date, timedelta
 
 from sqlalchemy.orm import Session
 
-from models import User, DailyTask
+from models import User, DailyTask, Conversation, Message, SubscribeAuth
 from services.llm_service import generate_supervision
 
 logger = logging.getLogger(__name__)
@@ -110,12 +110,33 @@ def finalize_previous_day_tasks(db: Session, now: datetime | None = None) -> int
     return len(tasks)
 
 
+def save_supervision_as_message(db: Session, user_id: int, content: str, effective_date: date):
+    """将监督消息存入对话记录，用户打开小程序时可见"""
+    conv = db.query(Conversation).filter(
+        Conversation.user_id == user_id,
+        Conversation.date == effective_date,
+    ).first()
+    if not conv:
+        conv = Conversation(user_id=user_id, date=effective_date, title=f"目标追踪 {effective_date}")
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+
+    msg = Message(conversation_id=conv.id, role="assistant", content=content)
+    db.add(msg)
+    db.commit()
+
+
 async def run_supervision_cycle(db: Session) -> list[dict]:
     """运行一轮监督检查 — 由定时任务调用
 
-    Returns:
-        需要催促的用户列表 [{"user_id": int, "type": str, "message": str}]
+    对符合条件的用户：
+    1. 生成监督消息并存入对话
+    2. 尝试通过微信订阅消息推送（如有授权）
     """
+    from config import settings
+    from services.wechat_service import wechat_service
+
     now = datetime.now()
     effective_date = get_effective_date(now)
     results = []
@@ -129,7 +150,6 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
 
             summary = get_user_task_summary(db, user.id, effective_date)
 
-            # 晨间还检查前一天未完成任务
             if supervision_type == "morning":
                 yesterday = get_effective_date(now - timedelta(days=1))
                 yesterday_summary = get_user_task_summary(db, user.id, yesterday)
@@ -142,6 +162,31 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     completed_tasks=summary["completed_tasks"],
                     uncompleted_tasks=summary["uncompleted_tasks"],
                 )
+
+                # 存入对话记录
+                save_supervision_as_message(db, user.id, message, effective_date)
+
+                # 尝试推送订阅消息
+                template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+                if template_id:
+                    auth = db.query(SubscribeAuth).filter(
+                        SubscribeAuth.user_id == user.id,
+                        SubscribeAuth.template_id == template_id,
+                        SubscribeAuth.used == False,
+                    ).first()
+                    if auth:
+                        sent = await wechat_service.send_subscribe_message(
+                            openid=user.openid,
+                            template_id=template_id,
+                            data={
+                                "thing1": {"value": message[:20]},
+                                "time2": {"value": now.strftime("%H:%M")},
+                            },
+                        )
+                        if sent:
+                            auth.used = True
+                            db.commit()
+
                 results.append({
                     "user_id": user.id,
                     "openid": user.openid,

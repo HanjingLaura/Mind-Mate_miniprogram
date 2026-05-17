@@ -1,4 +1,4 @@
-<!-- 设置页 — 作息时间调整 + VIP 状态 -->
+<!-- 设置页 — 作息时间调整 + VIP 状态 + 通知 -->
 <view class="settings-page">
   <view class="settings-section">
     <text class="section-title">监督作息时间</text>
@@ -42,6 +42,14 @@
   </view>
 
   <view class="settings-section">
+    <text class="section-title">通知与提醒</text>
+    <view class="notify-item" bindtap="onNotificationTap">
+      <text class="notify-label">监督提醒推送</text>
+      <text class="notify-hint">点击授权</text>
+    </view>
+  </view>
+
+  <view class="settings-section">
     <text class="section-title">VIP 状态</text>
     <view class="vip-status">
       <text class="vip-label">{{isVip ? '已激活' : '未激活'}}</text>
@@ -51,7 +59,7 @@
       class="btn-primary"
       wx:if="{{!isVip}}"
       bindtap="onUpgradeTap"
-    >升级 VIP ¥1.99</button>
+    >升级 VIP</button>
   </view>
 
   <!-- 隐蔽的管理员入口 -->

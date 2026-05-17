@@ -1,37 +1,59 @@
-<!-- 今日任务打卡看板组件 -->
-<view class="task-board">
-  <view class="board-header" bindtap="onHeaderTap">
-    <text class="board-title">今日战报</text>
-    <view class="board-stats">
-      <text class="stat-done">{{completedCount}}</text>
-      <text class="stat-sep">/</text>
-      <text class="stat-total">{{totalCount}}</text>
+<!-- 今日任务打卡看板组件 — 始终可见 -->
+<view class="task-card">
+  <view class="card-summary" bindtap="onToggleExpand">
+    <view class="summary-left" catchtap="onHeaderTap">
+      <text class="summary-label">今日任务</text>
+      <text class="summary-count" wx:if="{{totalCount > 0}}">{{completedCount}}/{{totalCount}}</text>
+      <text class="summary-count empty" wx:else>待定</text>
     </view>
+    <text class="expand-icon">{{expanded ? '▾' : '▸'}}</text>
   </view>
 
-  <view class="task-list" wx:if="{{tasks.length > 0}}">
-    <view
-      class="task-item {{item.is_completed ? 'completed' : ''}}"
-      wx:for="{{tasks}}"
-      wx:key="id"
-      bindtap="onTaskTap"
-      data-id="{{item.id}}"
-      data-index="{{index}}"
-    >
-      <view class="task-check">
-        <view class="check-box {{item.is_completed ? 'checked' : ''}}">
-          <text wx:if="{{item.is_completed}}">✓</text>
+  <!-- 进度条 -->
+  <view class="progress-bar" wx:if="{{totalCount > 0}}">
+    <view class="progress-fill" style="width: {{progressPercent}}%"></view>
+  </view>
+
+  <view class="task-list" wx:if="{{expanded}}">
+    <!-- 有任务 -->
+    <block wx:if="{{totalCount > 0}}">
+      <view
+        class="task-item {{item.is_completed ? 'completed' : ''}}"
+        wx:for="{{tasks}}"
+        wx:key="id"
+      >
+        <view class="task-check" bindtap="onTaskTap" data-id="{{item.id}}" data-index="{{index}}">
+          <view class="check-box {{item.is_completed ? 'checked' : ''}}">
+            <text wx:if="{{item.is_completed}}">✓</text>
+          </view>
+        </view>
+        <view class="task-content">
+          <text class="task-text">{{item.content}}</text>
+        </view>
+        <view class="task-delete" catchtap="onDelete" data-id="{{item.id}}" data-index="{{index}}">
+          <text class="delete-icon">×</text>
         </view>
       </view>
-      <view class="task-content">
-        <text class="task-text">{{item.content}}</text>
-        <text class="task-goal" wx:if="{{item.goal}}">{{item.goal}}</text>
+    </block>
+    <!-- 无任务 -->
+    <view class="task-empty" wx:else>
+      <text class="empty-text">还没有今日任务</text>
+      <text class="empty-hint">跟我聊聊你的计划吧</text>
+    </view>
+
+    <!-- 添加任务输入 -->
+    <view class="add-task-row">
+      <input
+        class="add-input"
+        placeholder="添加一个任务..."
+        placeholder-class="add-placeholder"
+        value="{{newTask}}"
+        bindinput="onNewTaskInput"
+        bindconfirm="onAddTask"
+      />
+      <view class="add-btn {{newTask.trim() ? 'active' : ''}}" bindtap="onAddTask">
+        <text class="add-btn-text">+</text>
       </view>
     </view>
-  </view>
-
-  <view class="empty-tasks" wx:else>
-    <text class="empty-icon">📋</text>
-    <text class="empty-text">暂无任务，和我说说你的目标吧</text>
   </view>
 </view>

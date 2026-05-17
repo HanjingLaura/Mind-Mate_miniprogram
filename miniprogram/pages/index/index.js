@@ -1,11 +1,11 @@
 /**
  * 心智同行 聊天主页
- * 核心功能：流式聊天 + 任务看板 + VIP 弹窗 + 历史入口
+ * 核心功能：流式聊天 + 短句逐条发送 + 任务看板 + VIP 弹窗
  */
 
 const app = getApp()
 const api = require('../../utils/api')
-const util = require('../../utils/util')
+const config = require('../../utils/config')
 
 Page({
   data: {
@@ -13,28 +13,29 @@ Page({
     messages: [],
     inputText: '',
     isStreaming: false,
-    streamingContent: '',
     scrollTarget: '',
     showVipModal: false,
-    currentDate: '',
     isVip: false,
+    loadingMore: false,
   },
 
   _requestTask: null,
+  _streamBuffer: '',
 
   onLoad() {
-    const openid = app.globalData.openid || 'dev_default'
-    this.setData({
-      openid,
-      currentDate: util.getEffectiveDate(),
+    app.loginReady.then(() => {
+      const openid = app.globalData.openid || 'dev_default'
+      this.setData({ openid })
+      this.loadAllMessages()
+      this.loadProfile()
     })
-    this.loadProfile()
   },
 
   onShow() {
-    // 从设置页返回时刷新
     if (this.data.openid) {
       this.loadProfile()
+      const taskBoard = this.selectComponent('#task-board')
+      if (taskBoard) taskBoard.refresh()
     }
   },
 
@@ -48,6 +49,69 @@ Page({
     }
   },
 
+  async loadAllMessages() {
+    try {
+      const msgs = await api.get(`/api/chat/all_messages/${this.data.openid}`)
+      const processed = this._processMessages(msgs)
+      this.setData({ messages: processed })
+      this.scrollToBottom()
+    } catch (e) {
+      console.error('[Index] 加载消息失败', e)
+    }
+  },
+
+  async loadOlderMessages() {
+    if (this.data.loadingMore || this.data.messages.length === 0) return
+    const firstMsg = this.data.messages.find(m => m.id)
+    if (!firstMsg) return
+
+    this.setData({ loadingMore: true })
+    try {
+      const msgs = await api.get(`/api/chat/all_messages/${this.data.openid}?before_id=${firstMsg.id}`)
+      if (msgs.length === 0) return
+      const processed = this._processMessages(msgs)
+      this.setData({
+        messages: [...processed, ...this.data.messages],
+        loadingMore: false,
+      })
+    } catch (e) {
+      this.setData({ loadingMore: false })
+    }
+  },
+
+  _processMessages(msgs) {
+    let lastDate = ''
+    return msgs.map(m => {
+      const item = {
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timeLabel: m.created_at ? m.created_at.slice(11, 16) : '',
+        showDateMarker: false,
+        dateLabel: '',
+      }
+      const convDate = m.conversation_date || ''
+      if (convDate !== lastDate) {
+        item.showDateMarker = true
+        item.dateLabel = this.formatDateLabel(convDate)
+        lastDate = convDate
+      }
+      return item
+    })
+  },
+
+  formatDateLabel(dateStr) {
+    const today = new Date()
+    const d = new Date(dateStr + 'T00:00:00')
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    if (dateStr === todayStr) return '今天'
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`
+    if (dateStr === yesterdayStr) return '昨天'
+    return `${d.getMonth() + 1}月${d.getDate()}日`
+  },
+
   onInput(e) {
     this.setData({ inputText: e.detail.value })
   },
@@ -56,54 +120,99 @@ Page({
     const text = this.data.inputText.trim()
     if (!text || this.data.isStreaming) return
 
-    // 添加用户消息到列表
     const userMsg = {
-      id: Date.now(),
+      id: 'temp_' + Date.now(),
       role: 'user',
       content: text,
+      showDateMarker: false,
+      dateLabel: '',
+      timeLabel: new Date().toTimeString().slice(0, 5),
     }
     this.setData({
       messages: [...this.data.messages, userMsg],
       inputText: '',
       isStreaming: true,
-      streamingContent: '',
     })
+    this._streamBuffer = ''
     this.scrollToBottom()
 
-    // 流式请求
     this._requestTask = api.streamChat(
       this.data.openid,
       text,
-      // onChunk
       (chunk) => {
+        this._streamBuffer += chunk
+      },
+      () => {
+        this._sendShortMessages(this._streamBuffer)
+      }
+    )
+
+    this.requestNotificationAuth()
+  },
+
+  _sendShortMessages(fullText) {
+    if (!fullText) {
+      this.setData({ isStreaming: false })
+      return
+    }
+
+    const sentences = this._splitIntoSentences(fullText)
+    const timeLabel = new Date().toTimeString().slice(0, 5)
+    let delay = 0
+
+    sentences.forEach((sentence, index) => {
+      delay += 300 + Math.random() * 400
+      setTimeout(() => {
+        const shortMsg = {
+          id: 'temp_ai_' + Date.now() + '_' + index,
+          role: 'assistant',
+          content: sentence,
+          showDateMarker: false,
+          dateLabel: '',
+          timeLabel: index === sentences.length - 1 ? timeLabel : '',
+        }
         this.setData({
-          streamingContent: this.data.streamingContent + chunk,
+          messages: [...this.data.messages, shortMsg],
         })
         this.scrollToBottom()
-      },
-      // onDone
-      () => {
-        const aiContent = this.data.streamingContent
-        if (aiContent) {
-          const aiMsg = {
-            id: Date.now() + 1,
-            role: 'assistant',
-            content: aiContent,
-          }
-          this.setData({
-            messages: [...this.data.messages, aiMsg],
-            isStreaming: false,
-            streamingContent: '',
-          })
-          // 刷新任务看板
+
+        if (index === sentences.length - 1) {
+          this.setData({ isStreaming: false })
           const taskBoard = this.selectComponent('#task-board')
           if (taskBoard) taskBoard.refresh()
-        } else {
-          this.setData({ isStreaming: false, streamingContent: '' })
         }
-      },
-      this.data.currentDate
-    )
+      }, delay)
+    })
+  },
+
+  _splitIntoSentences(text) {
+    // Remove TASK_SPLIT markers
+    text = text.replace(/\|\|\|TASK_SPLIT:\{.*?\}\|\|\|/g, '')
+
+    // Split by newlines first (LLM is instructed to use newlines)
+    let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)
+
+    // Further split long lines by sentence-ending punctuation
+    let result = []
+    for (const line of lines) {
+      if (line.length <= 20) {
+        result.push(line)
+        continue
+      }
+      // Split by 。！？ and keep the punctuation
+      let parts = line.split(/(?<=[。！？…])/g)
+      let current = ''
+      for (const part of parts) {
+        current += part
+        if (current.length >= 4) {
+          result.push(current.trim())
+          current = ''
+        }
+      }
+      if (current.trim()) result.push(current.trim())
+    }
+
+    return result.length > 0 ? result : [text.trim()]
   },
 
   scrollToBottom() {
@@ -112,17 +221,14 @@ Page({
     }, 50)
   },
 
-  /** 历史按钮 — 跳转历史页 */
-  onHistoryTap() {
-    wx.navigateTo({ url: `/pages/history/history?openid=${this.data.openid}` })
+  onSettingsTap() {
+    wx.navigateTo({ url: `/pages/settings/settings?openid=${this.data.openid}` })
   },
 
-  /** 任务看板5连击 → 管理员入口 */
   onAdminTrigger() {
     wx.navigateTo({ url: `/pages/admin/admin?openid=${this.data.openid}` })
   },
 
-  /** VIP 相关 */
   onUpgradeVip() {
     if (this.data.isVip) {
       wx.showToast({ title: '你已经是VIP了', icon: 'none' })
@@ -139,7 +245,6 @@ Page({
 
       this.setData({ showVipModal: false })
 
-      // 拉起微信支付
       wx.requestPayment({
         timeStamp: params.time_stamp,
         nonceStr: params.nonce_str,
@@ -147,9 +252,8 @@ Page({
         signType: params.sign_type,
         paySign: params.pay_sign,
         success: () => {
-          wx.showToast({ title: 'VIP开通成功！', icon: 'success' })
-          this.setData({ isVip: true })
-          app.globalData.isVip = true
+          wx.showToast({ title: '支付成功，确认中...', icon: 'none' })
+          this.pollVipStatus()
         },
         fail: (err) => {
           if (err.errMsg !== 'requestPayment:fail cancel') {
@@ -171,6 +275,40 @@ Page({
 
   closeVipModal() {
     this.setData({ showVipModal: false })
+  },
+
+  requestNotificationAuth() {
+    if (app.globalData.isDevMode) return
+    const templateId = config.SUBSCRIBE_TEMPLATE_ID
+    if (!templateId) return
+    wx.requestSubscribeMessage({
+      tmplIds: [templateId],
+      success: (res) => {
+        if (res[templateId] === 'accept') {
+          api.post('/api/user/subscribe_auth', {
+            openid: this.data.openid,
+            template_id: templateId,
+          })
+        }
+      },
+      fail: () => {}
+    })
+  },
+
+  async pollVipStatus(maxRetries = 5) {
+    for (let i = 0; i < maxRetries; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+      try {
+        const res = await api.get(`/api/pay/status/${this.data.openid}`)
+        if (res.is_vip) {
+          this.setData({ isVip: true })
+          app.globalData.isVip = true
+          wx.showToast({ title: 'VIP已生效！', icon: 'success' })
+          return
+        }
+      } catch (e) {}
+    }
+    wx.showToast({ title: '支付确认中，请稍后查看', icon: 'none' })
   },
 
   onUnload() {

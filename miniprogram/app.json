@@ -1,16 +1,15 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/history/history",
     "pages/settings/settings",
     "pages/admin/admin"
   ],
   "window": {
     "navigationBarTitleText": "心智同行",
-    "navigationBarBackgroundColor": "#0a0a0a",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#0a0a0a",
-    "backgroundTextStyle": "light"
+    "navigationBarBackgroundColor": "#ededed",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#ededed",
+    "backgroundTextStyle": "dark"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json"

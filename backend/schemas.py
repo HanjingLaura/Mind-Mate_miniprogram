@@ -64,6 +64,16 @@ class ChatMessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AllMessagesOut(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: datetime
+    conversation_date: date
+
+    model_config = {"from_attributes": True}
+
+
 # ────────────── Task ──────────────
 
 class DailyTaskOut(BaseModel):
@@ -80,6 +90,20 @@ class DailyTaskOut(BaseModel):
 class TaskCheckInRequest(BaseModel):
     """任务打卡"""
     task_id: int = Field(..., gt=0)
+    openid: str = Field(..., min_length=1)
+
+
+class TaskCreateRequest(BaseModel):
+    """手动添加任务"""
+    openid: str = Field(..., min_length=1)
+    goal: str = Field("", max_length=256)
+    content: str = Field(..., min_length=1, max_length=500)
+
+
+class TaskDeleteRequest(BaseModel):
+    """删除任务"""
+    task_id: int = Field(..., gt=0)
+    openid: str = Field(..., min_length=1)
 
 
 # ────────────── Pay ──────────────

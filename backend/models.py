@@ -81,3 +81,14 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class SubscribeAuth(Base):
+    """订阅消息授权记录 — 追踪一次性授权"""
+    __tablename__ = "subscribe_auths"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    template_id = Column(String(128), nullable=False, comment="模板 ID")
+    auth_time = Column(DateTime, default=datetime.utcnow, comment="授权时间")
+    used = Column(Boolean, default=False, comment="是否已消费")

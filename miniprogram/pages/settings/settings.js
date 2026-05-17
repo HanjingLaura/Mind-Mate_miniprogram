@@ -1,9 +1,10 @@
 /**
- * 设置页 — 作息时间调整
+ * 设置页 — 作息时间调整 + 通知 + VIP 状态
  */
 
 const app = getApp()
 const api = require('../../utils/api')
+const config = require('../../utils/config')
 
 Page({
   data: {
@@ -74,10 +75,66 @@ Page({
   },
 
   onUpgradeTap() {
-    wx.navigateTo({ url: `/pages/index/index` })
+    if (this.data.isVip) return
+    const self = this
+    wx.showModal({
+      title: '内测激活',
+      content: '内测期间免费激活VIP，解锁全部监督功能',
+      confirmText: '激活',
+      success: async (res) => {
+        if (!res.confirm) return
+        try {
+          wx.showLoading({ title: '激活中' })
+          const profile = await api.get(`/api/user/profile/${self.data.openid}`)
+          if (!profile || !profile.id) {
+            wx.hideLoading()
+            wx.showToast({ title: '用户不存在', icon: 'none' })
+            return
+          }
+          const result = await api.post('/api/admin/bypass_upgrade', {
+            user_id: profile.id,
+            secret_key: 'mindmate_seed_test_2026',
+          })
+          wx.hideLoading()
+          self.setData({ isVip: true })
+          app.globalData.isVip = true
+          wx.showToast({ title: 'VIP 已激活', icon: 'success' })
+          wx.vibrateShort({ type: 'heavy' })
+        } catch (e) {
+          wx.hideLoading()
+          wx.showToast({ title: '激活失败', icon: 'none' })
+        }
+      }
+    })
   },
 
-  /** 隐蔽的管理员入口 */
+  onNotificationTap() {
+    if (app.globalData.isDevMode) {
+      wx.showToast({ title: '开发模式暂不支持', icon: 'none' })
+      return
+    }
+    const templateId = config.SUBSCRIBE_TEMPLATE_ID
+    if (!templateId) {
+      wx.showToast({ title: '通知模板未配置', icon: 'none' })
+      return
+    }
+    wx.requestSubscribeMessage({
+      tmplIds: [templateId],
+      success: (res) => {
+        if (res[templateId] === 'accept') {
+          api.post('/api/user/subscribe_auth', {
+            openid: this.data.openid,
+            template_id: templateId,
+          })
+          wx.showToast({ title: '已开启提醒', icon: 'success' })
+        }
+      },
+      fail: () => {
+        wx.showToast({ title: '授权失败', icon: 'none' })
+      }
+    })
+  },
+
   onAdminTap() {
     wx.navigateTo({ url: `/pages/admin/admin?openid=${this.data.openid}` })
   }

@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models import User
 from schemas import PayOrderRequest, PayOrderOut
@@ -30,6 +31,21 @@ async def create_pay_order(req: PayOrderRequest, db: Session = Depends(get_db)):
 
     if user.is_vip:
         raise HTTPException(status_code=400, detail="你已经是 VIP 了，不需要重复购买")
+
+    # 开发/未配置环境直接提示，避免打到微信接口导致超时
+    required = {
+        "WECHAT_MCHID": settings.WECHAT_MCHID,
+        "WECHAT_APIV3_KEY": settings.WECHAT_APIV3_KEY,
+        "WECHAT_CERT_SERIAL_NO": settings.WECHAT_CERT_SERIAL_NO,
+        "WECHAT_NOTIFY_URL": settings.WECHAT_NOTIFY_URL,
+        "WECHAT_PRIVATE_KEY_PATH": settings.WECHAT_PRIVATE_KEY_PATH,
+    }
+    missing = [k for k, v in required.items() if not v or v.startswith("your_")]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail="微信支付未配置，请先在 backend/.env 填写商户参数",
+        )
 
     try:
         params = await wechat_pay.create_order(openid=req.openid)
@@ -85,7 +101,10 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
 
     except Exception as e:
         logger.error(f"支付回调处理异常: {e}")
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
         return {"code": "FAIL", "message": "处理异常"}
 
 

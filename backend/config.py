@@ -12,10 +12,10 @@ load_dotenv(dotenv_path=env_path)
 class Settings:
     """全局配置，所有密钥从环境变量动态读取，禁止硬编码"""
 
-    # 智谱 AI
+    # 智谱 GLM
     ZHIPU_API_KEY: str = os.getenv("ZHIPU_API_KEY", "")
-    ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
-    ZHIPU_MODEL: str = "glm-4-flash"
+    ZHIPU_BASE_URL: str = os.getenv("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+    ZHIPU_MODEL: str = os.getenv("ZHIPU_MODEL", "glm-4")
 
     # 管理员内测
     ADMIN_SECRET_KEY: str = os.getenv("ADMIN_SECRET_KEY", "")
@@ -23,12 +23,14 @@ class Settings:
     # 微信小程序
     WECHAT_APPID: str = os.getenv("WECHAT_APPID", "")
     WECHAT_SECRET: str = os.getenv("WECHAT_SECRET", "")
+    WECHAT_SUBSCRIBE_TEMPLATE_ID: str = os.getenv("WECHAT_SUBSCRIBE_TEMPLATE_ID", "")
 
     # 微信支付 V3
     WECHAT_MCHID: str = os.getenv("WECHAT_MCHID", "")
     WECHAT_APIV3_KEY: str = os.getenv("WECHAT_APIV3_KEY", "")
     WECHAT_CERT_SERIAL_NO: str = os.getenv("WECHAT_CERT_SERIAL_NO", "")
     WECHAT_NOTIFY_URL: str = os.getenv("WECHAT_NOTIFY_URL", "")
+    WECHAT_PRIVATE_KEY_PATH: str = os.getenv("WECHAT_PRIVATE_KEY_PATH", "")
 
     # 数据库
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./mind_mate.db")

@@ -119,7 +119,7 @@ class WeChatPayV3:
         """
         # MVP 阶段：如果未配置私钥，返回占位签名
         # 生产环境需替换为真正的 RSA 签名
-        private_key_path = getattr(settings, "WECHAT_PRIVATE_KEY_PATH", "")
+        private_key_path = settings.WECHAT_PRIVATE_KEY_PATH
         if not private_key_path:
             logger.warning("未配置商户私钥，使用占位签名（仅限开发测试）")
             return base64.b64encode(hashlib.sha256(message.encode()).digest()).decode()
@@ -151,9 +151,11 @@ class WeChatPayV3:
         Returns:
             解密后的回调数据 dict，验签失败返回 None
         """
+        # HTTP 头部字段名在 FastAPI 中被转为小写
         signature = headers.get("wechatpay-signature", "")
         timestamp = headers.get("wechatpay-timestamp", "")
         nonce = headers.get("wechatpay-nonce", "")
+        serial_no = headers.get("wechatpay-serial", "")
 
         if not all([signature, timestamp, nonce]):
             logger.warning("回调缺少必要验签头")
@@ -162,21 +164,26 @@ class WeChatPayV3:
         # 构造验签消息
         sign_message = f"{timestamp}\n{nonce}\n{body.decode()}\n"
 
-        # MVP 阶段：验签逻辑预留
         # 生产环境需加载微信平台证书并验证签名
+        # MVP 阶段：跳过签名验证，直接解密通知内容
+        # TODO: 上线前必须实现完整验签逻辑
+        logger.warning("MVP模式：跳过回调签名验证，上线前必须实现")
         try:
-            # 解密通知内容
             data = json.loads(body)
             resource = data.get("resource", {})
             ciphertext = resource.get("ciphertext", "")
-            nonce = resource.get("nonce", "")
+            nonce_val = resource.get("nonce", "")
             associated_data = resource.get("associated_data", "")
 
             if ciphertext and self.apiv3_key:
                 decrypted = self._decrypt_aes_gcm(
-                    ciphertext, nonce, associated_data, self.apiv3_key
+                    ciphertext, nonce_val, associated_data, self.apiv3_key
                 )
                 return json.loads(decrypted)
+
+            # 无加密资源（如测试环境），直接返回 event_type
+            if data.get("event_type") == "TRANSACTION.SUCCESS":
+                return data
 
         except Exception as e:
             logger.error(f"回调验签/解密失败: {e}")

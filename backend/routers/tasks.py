@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, DailyTask
-from schemas import DailyTaskOut, TaskCheckInRequest
+from schemas import DailyTaskOut, TaskCheckInRequest, TaskCreateRequest, TaskDeleteRequest
 from services.scheduler_service import get_effective_date
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -38,10 +38,10 @@ async def get_today_tasks(openid: str, db: Session = Depends(get_db)):
 
 
 @router.post("/checkin")
-async def checkin_task(req: TaskCheckInRequest, openid: str, db: Session = Depends(get_db)):
+async def checkin_task(req: TaskCheckInRequest, db: Session = Depends(get_db)):
     """任务打卡 — 标记为已完成"""
     try:
-        user = db.query(User).filter(User.openid == openid).first()
+        user = db.query(User).filter(User.openid == req.openid).first()
         if not user:
             raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -92,3 +92,56 @@ async def get_yesterday_uncompleted(openid: str, db: Session = Depends(get_db)):
         }
         for t in tasks
     ]
+
+
+@router.post("/add")
+async def add_task(req: TaskCreateRequest, db: Session = Depends(get_db)):
+    """手动添加任务"""
+    user = db.query(User).filter(User.openid == req.openid).first()
+    if not user:
+        user = User(openid=req.openid)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    effective_date = get_effective_date()
+    goal = req.goal
+    if not goal:
+        existing = db.query(DailyTask).filter(
+            DailyTask.user_id == user.id,
+            DailyTask.task_date == effective_date,
+        ).first()
+        goal = existing.goal if existing else "今日目标"
+
+    task = DailyTask(
+        user_id=user.id,
+        task_date=effective_date,
+        goal=goal,
+        content=req.content.strip(),
+        is_completed=False,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    return DailyTaskOut.model_validate(task)
+
+
+@router.delete("/delete")
+async def delete_task(req: TaskDeleteRequest, db: Session = Depends(get_db)):
+    """删除任务"""
+    user = db.query(User).filter(User.openid == req.openid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    task = db.query(DailyTask).filter(
+        DailyTask.id == req.task_id,
+        DailyTask.user_id == user.id,
+    ).first()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    db.delete(task)
+    db.commit()
+    return {"success": True}

@@ -36,22 +36,30 @@ function request(url, options = {}) {
 /**
  * 流式聊天请求 — 使用 wx.request 的 enableChunked 实现流式读取
  */
-function streamChat(openid, content, onChunk, onDone, date) {
+function streamChat(openid, content, onChunk, onDone) {
+  let doneCalled = false
+
+  function safeDone() {
+    if (doneCalled) return
+    doneCalled = true
+    onDone && onDone()
+  }
+
   const requestTask = wx.request({
     url: `${app.globalData.apiBase}/api/chat/send`,
     method: 'POST',
-    data: { openid, content, date },
+    data: { openid, content },
     enableChunked: true,
+    timeout: 120000,
     success() {
-      onDone && onDone()
+      safeDone()
     },
     fail(err) {
       console.error('[Stream] 请求失败', err)
-      onDone && onDone()
+      safeDone()
     }
   })
 
-  // 监听分块数据
   requestTask.onChunkReceived((res) => {
     try {
       const text = new TextDecoder('utf-8').decode(new Uint8Array(res.data))
@@ -61,7 +69,7 @@ function streamChat(openid, content, onChunk, onDone, date) {
         if (line.startsWith('data: ')) {
           const payload = line.slice(6).trim()
           if (payload === '[DONE]') {
-            onDone && onDone()
+            safeDone()
             return
           }
           try {
@@ -85,8 +93,8 @@ function streamChat(openid, content, onChunk, onDone, date) {
 module.exports = {
   request,
   streamChat,
-  // 便捷方法
   get: (url) => request(url, { method: 'GET' }),
   post: (url, data) => request(url, { method: 'POST', data }),
   put: (url, data) => request(url, { method: 'PUT', data }),
+  del: (url, data) => request(url, { method: 'DELETE', data }),
 }
