@@ -76,36 +76,8 @@ Page({
 
   onUpgradeTap() {
     if (this.data.isVip) return
-    const self = this
-    wx.showModal({
-      title: '内测激活',
-      content: '内测期间免费激活VIP，解锁全部监督功能',
-      confirmText: '激活',
-      success: async (res) => {
-        if (!res.confirm) return
-        try {
-          wx.showLoading({ title: '激活中' })
-          const profile = await api.get(`/api/user/profile/${self.data.openid}`)
-          if (!profile || !profile.id) {
-            wx.hideLoading()
-            wx.showToast({ title: '用户不存在', icon: 'none' })
-            return
-          }
-          const result = await api.post('/api/admin/bypass_upgrade', {
-            user_id: profile.id,
-            secret_key: 'mindmate_seed_test_2026',
-          })
-          wx.hideLoading()
-          self.setData({ isVip: true })
-          app.globalData.isVip = true
-          wx.showToast({ title: 'VIP 已激活', icon: 'success' })
-          wx.vibrateShort({ type: 'heavy' })
-        } catch (e) {
-          wx.hideLoading()
-          wx.showToast({ title: '激活失败', icon: 'none' })
-        }
-      }
-    })
+    app.globalData.showVipOnShow = true
+    wx.switchTab({ url: '/pages/index/index' })
   },
 
   onNotificationTap() {

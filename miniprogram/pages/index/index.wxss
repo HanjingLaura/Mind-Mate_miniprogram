@@ -18,10 +18,36 @@
   border-bottom: 1rpx solid #d9d9d9;
 }
 
+.nav-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
 .nav-title {
   font-size: 34rpx;
   font-weight: 600;
   color: #333;
+}
+
+.nav-vip-badge {
+  background: linear-gradient(135deg, #ffd700, #ffb347);
+  color: #8b4513;
+  font-size: 20rpx;
+  font-weight: 700;
+  padding: 4rpx 12rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
+}
+
+.nav-vip-btn {
+  background: linear-gradient(135deg, #07c160, #06ad56);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  padding: 4rpx 16rpx;
+  border-radius: 12rpx;
+  flex-shrink: 0;
 }
 
 .nav-actions {

@@ -113,6 +113,67 @@
   color: #999;
 }
 
+/* 任务变更高亮动画 */
+.highlight-add {
+  animation: slideInUp 0.4s ease-out;
+  background: rgba(7, 193, 96, 0.08);
+}
+
+.highlight-done {
+  animation: pulseGreen 0.6s ease-out;
+  background: rgba(7, 193, 96, 0.12);
+}
+
+.highlight-edit {
+  animation: pulseBlue 0.6s ease-out;
+  background: rgba(10, 89, 247, 0.08);
+}
+
+.highlight-delete {
+  animation: fadeOut 0.5s ease-out forwards;
+  background: rgba(255, 77, 79, 0.12);
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulseGreen {
+  0% {
+    background: rgba(7, 193, 96, 0.3);
+  }
+  100% {
+    background: rgba(7, 193, 96, 0);
+  }
+}
+
+@keyframes pulseBlue {
+  0% {
+    background: rgba(10, 89, 247, 0.3);
+  }
+  100% {
+    background: rgba(10, 89, 247, 0);
+  }
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+    background: rgba(255, 77, 79, 0.3);
+  }
+  100% {
+    opacity: 0;
+    background: rgba(255, 77, 79, 0);
+  }
+}
+
 /* 删除按钮 */
 .task-delete {
   width: 48rpx;

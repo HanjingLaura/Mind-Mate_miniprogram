@@ -2,7 +2,11 @@
 <view class="page-container">
   <!-- 导航栏 -->
   <view class="nav-bar">
-    <text class="nav-title">{{isStreaming ? '对方正在输出中...' : '心智同行'}}</text>
+    <view class="nav-title-wrap">
+      <text class="nav-title">{{isStreaming ? '对方正在输出中...' : '心智同行'}}</text>
+      <view class="nav-vip-badge" wx:if="{{isVip}}">VIP</view>
+      <view class="nav-vip-btn" wx:else bindtap="showVipPrompt">升级VIP</view>
+    </view>
     <view class="nav-actions">
       <view class="nav-btn" bindtap="onSettingsTap">
         <text class="nav-icon">⚙</text>

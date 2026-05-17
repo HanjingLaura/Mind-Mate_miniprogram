@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field, field_validator
 
 # ────────────── User ──────────────
 
+class LoginRequest(BaseModel):
+    """登录请求"""
+    code: str = Field("", description="wx.login 获取的 code")
+    openid: str = Field("", description="直接传入 openid（开发模式）")
+
+
 class UserBase(BaseModel):
     nickname: Optional[str] = ""
     avatar_url: Optional[str] = ""
@@ -54,6 +60,7 @@ class ChatRequest(BaseModel):
     openid: str = Field(..., min_length=1, description="用户 openid")
     content: str = Field(..., min_length=1, max_length=2000, description="用户消息内容")
     date: Optional[str] = Field(None, description="对话日期 YYYY-MM-DD，默认今天")
+    sync: bool = Field(False, description="云托管同步模式，返回完整JSON而非SSE流")
 
 
 class ChatMessageOut(BaseModel):

@@ -21,6 +21,7 @@ Page({
 
   _requestTask: null,
   _streamBuffer: '',
+  _pendingTaskChanges: [],
 
   onLoad() {
     app.loginReady.then(() => {
@@ -31,11 +32,18 @@ Page({
     })
   },
 
-  onShow() {
+  async onShow() {
     if (this.data.openid) {
-      this.loadProfile()
+      await this.loadProfile()
       const taskBoard = this.selectComponent('#task-board')
       if (taskBoard) taskBoard.refresh()
+      // 从设置页跳回时自动弹出VIP弹窗
+      if (app.globalData.showVipOnShow) {
+        delete app.globalData.showVipOnShow
+        if (!this.data.isVip) {
+          this.setData({ showVipModal: true })
+        }
+      }
     }
   },
 
@@ -62,12 +70,13 @@ Page({
 
   async loadOlderMessages() {
     if (this.data.loadingMore || this.data.messages.length === 0) return
-    const firstMsg = this.data.messages.find(m => m.id)
-    if (!firstMsg) return
+    // 只使用真实数据库ID，过滤掉临时消息ID（temp_开头）
+    const firstRealMsg = this.data.messages.find(m => m.id && !String(m.id).startsWith('temp_'))
+    if (!firstRealMsg) return
 
     this.setData({ loadingMore: true })
     try {
-      const msgs = await api.get(`/api/chat/all_messages/${this.data.openid}?before_id=${firstMsg.id}`)
+      const msgs = await api.get(`/api/chat/all_messages/${this.data.openid}?before_id=${firstRealMsg.id}`)
       if (msgs.length === 0) return
       const processed = this._processMessages(msgs)
       this.setData({
@@ -134,6 +143,7 @@ Page({
       isStreaming: true,
     })
     this._streamBuffer = ''
+    this._pendingTaskChanges = []
     this.scrollToBottom()
 
     this._requestTask = api.streamChat(
@@ -144,6 +154,9 @@ Page({
       },
       () => {
         this._sendShortMessages(this._streamBuffer)
+      },
+      (changes) => {
+        this._pendingTaskChanges = changes
       }
     )
 
@@ -153,10 +166,21 @@ Page({
   _sendShortMessages(fullText) {
     if (!fullText) {
       this.setData({ isStreaming: false })
+      const taskBoard = this.selectComponent('#task-board')
+      if (taskBoard) taskBoard.refreshWithChanges(this._pendingTaskChanges)
+      this._pendingTaskChanges = []
       return
     }
 
     const sentences = this._splitIntoSentences(fullText)
+    if (sentences.length === 0) {
+      this.setData({ isStreaming: false })
+      const taskBoard = this.selectComponent('#task-board')
+      if (taskBoard) taskBoard.refreshWithChanges(this._pendingTaskChanges)
+      this._pendingTaskChanges = []
+      return
+    }
+
     const timeLabel = new Date().toTimeString().slice(0, 5)
     let delay = 0
 
@@ -178,16 +202,21 @@ Page({
 
         if (index === sentences.length - 1) {
           this.setData({ isStreaming: false })
-          const taskBoard = this.selectComponent('#task-board')
-          if (taskBoard) taskBoard.refresh()
+          // 延迟500ms确保后端标记处理完成，再刷新任务看板
+          setTimeout(() => {
+            const taskBoard = this.selectComponent('#task-board')
+            if (taskBoard) taskBoard.refreshWithChanges(this._pendingTaskChanges)
+            this._pendingTaskChanges = []
+          }, 500)
         }
       }, delay)
     })
   },
 
   _splitIntoSentences(text) {
-    // Remove TASK_SPLIT markers
-    text = text.replace(/\|\|\|TASK_SPLIT:\{.*?\}\|\|\|/g, '')
+    // 清除所有任务标记（通用正则，覆盖所有 TASK_xxx 类型）
+    text = text.replace(/\|\|\|TASK_\w+:[^|]*\|\|\|/g, '')
+    if (!text.trim()) return []
 
     // Split by newlines first (LLM is instructed to use newlines)
     let lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 0)

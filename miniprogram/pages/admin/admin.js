@@ -3,6 +3,7 @@
  * 通过内测暗号直接调用后端 bypass_upgrade 接口
  */
 
+const app = getApp()
 const api = require('../../utils/api')
 
 Page({
@@ -47,6 +48,9 @@ Page({
         secret_key: this.data.secretKey,
       })
 
+      // 更新全局VIP状态
+      app.globalData.isVip = true
+
       this.setData({
         resultText: res.message || 'VIP 激活成功！',
         resultSuccess: true,
@@ -54,6 +58,11 @@ Page({
       })
 
       wx.vibrateShort({ type: 'heavy' })
+
+      // 延迟返回主页
+      setTimeout(() => {
+        wx.switchTab({ url: '/pages/index/index' })
+      }, 1500)
 
     } catch (e) {
       const msg = e?.data?.detail || '激活失败，暗号有误'

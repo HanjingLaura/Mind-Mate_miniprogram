@@ -18,7 +18,7 @@
     <!-- 有任务 -->
     <block wx:if="{{totalCount > 0}}">
       <view
-        class="task-item {{item.is_completed ? 'completed' : ''}}"
+        class="task-item {{item.is_completed ? 'completed' : ''}} {{item.highlight ? 'highlight-' + item.highlight : ''}}"
         wx:for="{{tasks}}"
         wx:key="id"
       >

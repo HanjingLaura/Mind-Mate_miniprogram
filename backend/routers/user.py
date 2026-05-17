@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from config import settings
 from database import get_db
 from models import User, SubscribeAuth
-from schemas import UserOut, UserSettingsUpdate
+from schemas import LoginRequest, UserOut, UserSettingsUpdate
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 logger = logging.getLogger(__name__)
@@ -30,18 +30,18 @@ async def get_profile(openid: str, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(code: str = "", openid: str = "", db: Session = Depends(get_db)):
+async def login(req: LoginRequest, db: Session = Depends(get_db)):
     """登录/注册 — 支持 code 换 openid（生产）或直接传 openid（开发）"""
     try:
-        resolved_openid = openid
+        resolved_openid = req.openid
 
-        if code and settings.WECHAT_APPID and settings.WECHAT_SECRET:
+        if req.code and settings.WECHAT_APPID and settings.WECHAT_SECRET:
             import httpx
             url = "https://api.weixin.qq.com/sns/jscode2session"
             params = {
                 "appid": settings.WECHAT_APPID,
                 "secret": settings.WECHAT_SECRET,
-                "js_code": code,
+                "js_code": req.code,
                 "grant_type": "authorization_code",
             }
             async with httpx.AsyncClient() as client:
@@ -52,7 +52,8 @@ async def login(code: str = "", openid: str = "", db: Session = Depends(get_db))
                 else:
                     logger.warning(f"code2session 失败: {data}")
 
-        if not resolved_openid and code:
+        if not resolved_openid and req.code:
+            resolved_openid = "dev_" + hashlib.md5(req.code.encode()).hexdigest()[:12]
             resolved_openid = "dev_" + hashlib.md5(code.encode()).hexdigest()[:12]
 
         if not resolved_openid:

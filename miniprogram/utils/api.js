@@ -1,18 +1,28 @@
 /**
  * 网络请求封装
+ * 支持 wx.request（本地开发）和 wx.cloud.callContainer（云托管）
  */
 
 const app = getApp()
 
+const LOCAL_API_BASE = 'http://localhost:8000'
+
 /**
- * 通用请求方法
+ * 通用请求方法 — 自动选择传输通道
  */
 function request(url, options = {}) {
   const { method = 'GET', data = {} } = options
 
+  if (app.globalData.env === 'cloud') {
+    return _cloudRequest(url, method, data)
+  }
+  return _localRequest(url, method, data)
+}
+
+function _localRequest(url, method, data) {
   return new Promise((resolve, reject) => {
     wx.request({
-      url: `${app.globalData.apiBase}${url}`,
+      url: `${LOCAL_API_BASE}${url}`,
       method,
       data,
       header: {
@@ -33,10 +43,42 @@ function request(url, options = {}) {
   })
 }
 
+function _cloudRequest(url, method, data) {
+  return new Promise((resolve, reject) => {
+    wx.cloud.callContainer({
+      path: url,
+      method,
+      data,
+      header: {
+        'X-WX-SERVICE': 'mind-mate',
+        'content-type': 'application/json',
+      },
+      success(res) {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(res.data)
+        } else {
+          reject(res)
+        }
+      },
+      fail(err) {
+        console.error('[API] 云托管请求失败:', url, err)
+        reject(err)
+      }
+    })
+  })
+}
+
 /**
- * 流式聊天请求 — 使用 wx.request 的 enableChunked 实现流式读取
+ * 流式聊天请求 — 本地用 SSE，云端用同步接口
  */
-function streamChat(openid, content, onChunk, onDone) {
+function streamChat(openid, content, onChunk, onDone, onTaskChanges) {
+  if (app.globalData.env === 'cloud') {
+    return _cloudStreamChat(openid, content, onChunk, onDone, onTaskChanges)
+  }
+  return _localStreamChat(openid, content, onChunk, onDone, onTaskChanges)
+}
+
+function _localStreamChat(openid, content, onChunk, onDone, onTaskChanges) {
   let doneCalled = false
 
   function safeDone() {
@@ -46,7 +88,7 @@ function streamChat(openid, content, onChunk, onDone) {
   }
 
   const requestTask = wx.request({
-    url: `${app.globalData.apiBase}/api/chat/send`,
+    url: `${LOCAL_API_BASE}/api/chat/send`,
     method: 'POST',
     data: { openid, content },
     enableChunked: true,
@@ -74,6 +116,9 @@ function streamChat(openid, content, onChunk, onDone) {
           }
           try {
             const parsed = JSON.parse(payload)
+            if (parsed.task_changes) {
+              onTaskChanges && onTaskChanges(parsed.task_changes)
+            }
             if (parsed.content) {
               onChunk(parsed.content)
             }
@@ -88,6 +133,24 @@ function streamChat(openid, content, onChunk, onDone) {
   })
 
   return requestTask
+}
+
+async function _cloudStreamChat(openid, content, onChunk, onDone, onTaskChanges) {
+  try {
+    const result = await _cloudRequest('/api/chat/send', 'POST', {
+      openid, content, sync: true
+    })
+    if (result.task_changes) {
+      onTaskChanges && onTaskChanges(result.task_changes)
+    }
+    if (result.content) {
+      onChunk && onChunk(result.content)
+    }
+  } catch (e) {
+    console.error('[CloudStream] 失败', e)
+  }
+  onDone && onDone()
+  return null
 }
 
 module.exports = {

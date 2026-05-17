@@ -21,3 +21,7 @@ miniprogram/miniprogram_npm/
 # 环境与密钥
 *.env
 !.env.example
+
+# 支付证书
+backend/certs/
+*.pem

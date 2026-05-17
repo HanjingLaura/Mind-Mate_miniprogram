@@ -31,6 +31,7 @@ class Settings:
     WECHAT_CERT_SERIAL_NO: str = os.getenv("WECHAT_CERT_SERIAL_NO", "")
     WECHAT_NOTIFY_URL: str = os.getenv("WECHAT_NOTIFY_URL", "")
     WECHAT_PRIVATE_KEY_PATH: str = os.getenv("WECHAT_PRIVATE_KEY_PATH", "")
+    WECHAT_PLATFORM_CERT_PATH: str = os.getenv("WECHAT_PLATFORM_CERT_PATH", "")
 
     # 数据库
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./mind_mate.db")

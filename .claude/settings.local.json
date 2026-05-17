@@ -13,7 +13,24 @@
       "Bash(curl -s -X POST http://localhost:8000/api/tasks/add -H \"Content-Type: application/json\" -d '{\"openid\":\"test_user\",\"goal\":\"学习CSS\",\"content\":\"完成CSS基础练习\"}')",
       "Bash(curl -s http://localhost:8000/api/tasks/today/test_user)",
       "Bash(curl *)",
-      "Bash(venv/Scripts/python -c ' *)"
+      "Bash(venv/Scripts/python -c ' *)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/services/llm_service.py', doraise=True\\); print\\('llm_service.py OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/routers/chat.py', doraise=True\\); print\\('chat.py OK'\\)\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(python -c ' *)",
+      "Bash(timeout 15 python -c ' *)",
+      "Bash(pip list *)",
+      "Bash(where python *)",
+      "Bash(C:\\\\Users\\\\hj120\\\\Desktop\\\\Mind-Mate\\\\Mind-Mate_miniprogram\\\\backend\\\\venv\\\\Scripts\\\\python.exe *)",
+      "Bash('C:\\\\Users\\\\hj120\\\\Desktop\\\\Mind-Mate\\\\Mind-Mate_miniprogram\\\\backend\\\\venv\\\\Scripts\\\\python.exe' -c ' *)",
+      "Bash(echo \"---EXIT:$?---\")",
+      "Bash(sqlite3 mind_mate.db \".tables\")",
+      "Bash(sqlite3 mind_mate.db \"SELECT COUNT\\(*\\) as count FROM users; SELECT '---'; SELECT * FROM users;\")",
+      "Bash(sqlite3 mind_mate.db \"SELECT COUNT\\(*\\) as count FROM conversations; SELECT '---'; SELECT * FROM conversations;\")",
+      "Bash(sqlite3 mind_mate.db \"SELECT COUNT\\(*\\) as count FROM messages; SELECT '---'; SELECT id, conversation_id, role, substr\\(content, 1, 80\\) as content_preview, created_at FROM messages ORDER BY id;\")",
+      "Bash(sqlite3 mind_mate.db \"SELECT COUNT\\(*\\) as count FROM daily_tasks; SELECT '---'; SELECT * FROM daily_tasks;\")",
+      "Bash(sqlite3 mind_mate.db \"SELECT COUNT\\(*\\) as count FROM subscribe_auths; SELECT '---'; SELECT * FROM subscribe_auths;\")",
+      "Bash(sqlite3 mind_mate.db \".schema\")"
     ]
   }
 }

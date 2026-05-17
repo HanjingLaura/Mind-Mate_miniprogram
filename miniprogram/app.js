@@ -1,6 +1,17 @@
 // Mind-Mate 小程序入口
 App({
   onLaunch() {
+    // 检测云托管环境
+    if (wx.cloud) {
+      try {
+        wx.cloud.init()
+        this.globalData.env = 'cloud'
+      } catch (e) {
+        this.globalData.env = 'local'
+      }
+    } else {
+      this.globalData.env = 'local'
+    }
     this.loginReady = this.login()
   },
 
@@ -9,10 +20,10 @@ App({
       wx.login({
         success: (res) => {
           if (res.code) {
-            this.globalData.openid = 'user_' + res.code
-            this.globalData.isDevMode = false
-            console.log('[App] 登录成功', this.globalData.openid)
-            resolve()
+            this._loginWithCode(res.code).then(resolve).catch(() => {
+              this._fallbackLogin()
+              resolve()
+            })
           } else {
             this._fallbackLogin()
             resolve()
@@ -24,6 +35,15 @@ App({
         }
       })
     })
+  },
+
+  async _loginWithCode(code) {
+    const api = require('./utils/api')
+    const data = await api.post('/api/user/login', { code })
+    this.globalData.openid = data.openid
+    this.globalData.isVip = data.is_vip || false
+    this.globalData.isDevMode = false
+    console.log('[App] 登录成功', data.openid)
   },
 
   _fallbackLogin() {
@@ -45,8 +65,8 @@ App({
 
   globalData: {
     openid: '',
-    apiBase: 'http://localhost:8000',
     isVip: false,
     isDevMode: false,
+    env: 'local',
   }
 })
