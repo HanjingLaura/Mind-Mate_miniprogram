@@ -4,6 +4,7 @@
  */
 
 const app = getApp()
+const { CLOUD_ENV_ID, CLOUD_SERVICE_NAME } = require('./config')
 
 const LOCAL_API_BASE = 'http://localhost:8000'
 
@@ -46,11 +47,12 @@ function _localRequest(url, method, data) {
 function _cloudRequest(url, method, data) {
   return new Promise((resolve, reject) => {
     wx.cloud.callContainer({
+      env: CLOUD_ENV_ID,
       path: url,
       method,
       data,
       header: {
-        'X-WX-SERVICE': 'mind-mate',
+        'X-WX-SERVICE': CLOUD_SERVICE_NAME,
         'content-type': 'application/json',
       },
       success(res) {

@@ -1,27 +1,48 @@
-# Python 后端隔离
-backend/.env
-backend/*.db
-backend/*.sqlite3
-backend/__pycache__/
-backend/**/__pycache__/
-backend/.pytest_cache/
-*.pyc
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+*.sqlite3
+*.db
 
-# 微信小程序前端隔离
-miniprogram/.project.config.json
-miniprogram/project.private.config.json
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 环境变量与密钥
+backend/.env
+*.env
+!**/.env.example
+
+# 微信小程序
 miniprogram/node_modules/
 miniprogram/miniprogram_npm/
+miniprogram/project.private.config.json
+
+# 证书
+backend/certs/
+*.pem
 
 # 系统与编辑器
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
-
-# 环境与密钥
-*.env
-!.env.example
-
-# 支付证书
-backend/certs/
-*.pem
+*.swp
+*.swo
