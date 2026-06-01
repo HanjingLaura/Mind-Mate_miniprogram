@@ -45,10 +45,22 @@ function _localRequest(url, method, data) {
 }
 
 function _cloudRequest(url, method, data) {
+  // 1. 必须先声明并初始化变量
+  let targetPath = url.startsWith('/') ? url : '/' + url
+
+  // 2. 然后才能在 console.log 中安全地使用它
+  console.log('[API] 云托管请求:', { 
+    env: CLOUD_ENV_ID, 
+    service: CLOUD_SERVICE_NAME, 
+    path: targetPath 
+  })
+  
   return new Promise((resolve, reject) => {
     wx.cloud.callContainer({
-      env: CLOUD_ENV_ID,
-      path: url,
+      config: {
+        env: CLOUD_ENV_ID,
+      },
+      path: targetPath, // 传递规整后的路径
       method,
       data,
       header: {
@@ -63,7 +75,7 @@ function _cloudRequest(url, method, data) {
         }
       },
       fail(err) {
-        console.error('[API] 云托管请求失败:', url, err)
+        console.error('[API] 云托管请求失败:', targetPath, err)
         reject(err)
       }
     })

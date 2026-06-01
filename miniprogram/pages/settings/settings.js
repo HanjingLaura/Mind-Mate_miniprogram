@@ -13,6 +13,7 @@ Page({
     afternoonTime: '16:00',
     eveningTime: '21:00',
     isVip: false,
+    showVipModal: false,
   },
 
   onLoad(options) {
@@ -76,8 +77,65 @@ Page({
 
   onUpgradeTap() {
     if (this.data.isVip) return
-    app.globalData.showVipOnShow = true
-    wx.switchTab({ url: '/pages/index/index' })
+    this.setData({ showVipModal: true })
+  },
+
+  onUpgradeVip() {
+    if (this.data.isVip) {
+      wx.showToast({ title: '你已经是VIP了', icon: 'none' })
+      return
+    }
+    this.createPayOrder()
+  },
+
+  async createPayOrder() {
+    try {
+      const params = await api.post('/api/pay/create_order', {
+        openid: this.data.openid,
+      })
+
+      this.setData({ showVipModal: false })
+
+      wx.requestPayment({
+        timeStamp: params.time_stamp,
+        nonceStr: params.nonce_str,
+        package: params.package,
+        signType: params.sign_type,
+        paySign: params.pay_sign,
+        success: () => {
+          wx.showToast({ title: '支付成功，确认中...', icon: 'none' })
+          this.pollVipStatus()
+        },
+        fail: (err) => {
+          if (err.errMsg !== 'requestPayment:fail cancel') {
+            wx.showToast({ title: '支付失败', icon: 'none' })
+          }
+        }
+      })
+    } catch (e) {
+      console.error('[Settings] 下单失败', e)
+      wx.showToast({ title: '下单失败', icon: 'none' })
+    }
+  },
+
+  closeVipModal() {
+    this.setData({ showVipModal: false })
+  },
+
+  async pollVipStatus(maxRetries = 5) {
+    for (let i = 0; i < maxRetries; i++) {
+      await new Promise(r => setTimeout(r, 2000))
+      try {
+        const res = await api.get(`/api/pay/status/${this.data.openid}`)
+        if (res.is_vip) {
+          this.setData({ isVip: true })
+          app.globalData.isVip = true
+          wx.showToast({ title: 'VIP已生效！', icon: 'success' })
+          return
+        }
+      } catch (e) {}
+    }
+    wx.showToast({ title: '支付确认中，请稍后查看', icon: 'none' })
   },
 
   onNotificationTap() {

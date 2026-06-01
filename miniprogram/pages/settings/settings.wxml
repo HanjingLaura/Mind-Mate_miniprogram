@@ -62,6 +62,24 @@
     >升级 VIP</button>
   </view>
 
+  <!-- VIP 弹窗 -->
+  <view class="vip-overlay" wx:if="{{showVipModal}}" bindtap="closeVipModal">
+    <view class="vip-modal" catchtap="">
+      <text class="vip-title">全天候监督</text>
+      <text class="vip-desc">升级 VIP 解锁午后借口狙击 + 晚间终局清算</text>
+      <view class="vip-features">
+        <text class="vip-feat">三段式主动监督</text>
+        <text class="vip-feat">昨日翻旧账吐槽</text>
+        <text class="vip-feat">专属硬核催促策略</text>
+      </view>
+      <text class="vip-price">¥1.99 体验包</text>
+      <view class="vip-actions">
+        <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
+        <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
+      </view>
+    </view>
+  </view>
+
   <!-- 隐蔽的管理员入口 -->
   <view class="admin-entry" bindtap="onAdminTap">
     <text class="admin-text">关于</text>
