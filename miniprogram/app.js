@@ -1,10 +1,10 @@
 // Mind-Mate 小程序入口
-const { CLOUD_ENV_ID } = require('./utils/config')
+const { USE_CLOUD, CLOUD_ENV_ID } = require('./utils/config')
 
 App({
   onLaunch() {
     // 检测云托管环境
-    if (wx.cloud && CLOUD_ENV_ID) {
+    if (USE_CLOUD && wx.cloud && CLOUD_ENV_ID) {
       try {
         wx.cloud.init({ env: CLOUD_ENV_ID })
         this.globalData.env = 'cloud'

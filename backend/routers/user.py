@@ -12,6 +12,7 @@ from config import settings
 from database import get_db
 from models import User, SubscribeAuth
 from schemas import LoginRequest, UserOut, UserSettingsUpdate
+from services.user_state import normalize_vip_status
 
 router = APIRouter(prefix="/api/user", tags=["user"])
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def get_profile(openid: str, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
-    return user
+    return normalize_vip_status(db, user)
 
 
 @router.post("/login")
@@ -54,7 +55,6 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
 
         if not resolved_openid and req.code:
             resolved_openid = "dev_" + hashlib.md5(req.code.encode()).hexdigest()[:12]
-            resolved_openid = "dev_" + hashlib.md5(code.encode()).hexdigest()[:12]
 
         if not resolved_openid:
             raise HTTPException(status_code=400, detail="需要 code 或 openid")
@@ -67,6 +67,7 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
             db.refresh(user)
             return {"user_id": user.id, "openid": resolved_openid, "is_new": True, "is_vip": user.is_vip}
 
+        user = normalize_vip_status(db, user)
         return {"user_id": user.id, "openid": resolved_openid, "is_new": False, "is_vip": user.is_vip}
 
     except HTTPException:
@@ -117,6 +118,7 @@ async def update_settings(
 class SubscribeAuthRequest(BaseModel):
     openid: str
     template_id: str = ""
+    scene: str = "general"
 
 
 @router.post("/subscribe_auth")
@@ -127,8 +129,13 @@ async def subscribe_auth(req: SubscribeAuthRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail="用户不存在")
 
     template_id = req.template_id or settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
-    auth = SubscribeAuth(user_id=user.id, template_id=template_id)
+    auth = SubscribeAuth(user_id=user.id, template_id=template_id, scene=req.scene or "general")
     db.add(auth)
     db.commit()
 
-    return {"success": True}
+    unused_count = db.query(SubscribeAuth).filter(
+        SubscribeAuth.user_id == user.id,
+        SubscribeAuth.used == False,
+    ).count()
+
+    return {"success": True, "unused_count": unused_count}

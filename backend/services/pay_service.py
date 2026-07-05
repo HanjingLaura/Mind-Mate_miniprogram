@@ -22,6 +22,11 @@ def _get_timestamp() -> str:
     return str(int(time.time()))
 
 
+def generate_out_trade_no() -> str:
+    """生成微信商户订单号。"""
+    return f"MM{int(time.time() * 1000)}{_generate_nonce_str()[:6]}"
+
+
 class WeChatPayV3:
     """微信小程序支付 V3 接口封装"""
 
@@ -46,9 +51,13 @@ class WeChatPayV3:
         missing = [k for k, v in required.items() if not v or v.startswith("your_")]
         return len(missing) == 0, missing
 
-    async def create_order(self, openid: str, description: str = "心智同行VIP体验包") -> dict:
+    async def create_order(
+        self,
+        openid: str,
+        out_trade_no: str,
+        description: str = "心智同行VIP体验包",
+    ) -> dict:
         """统一下单接口 — JSAPI 下单"""
-        out_trade_no = f"MM{int(time.time() * 1000)}{_generate_nonce_str()[:6]}"
         total = settings.VIP_PRICE_CENTS
 
         body = {
@@ -71,7 +80,7 @@ class WeChatPayV3:
         headers = {
             "Authorization": f'WECHATPAY2-SHA256-RSA2048 mchid="{self.mchid}",'
             f'nonce_str="{nonce_str}",timestamp="{timestamp}",'
-            f'derial_no="{self.cert_serial_no}",signature="{signature}"',
+            f'serial_no="{self.cert_serial_no}",signature="{signature}"',
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
@@ -91,7 +100,10 @@ class WeChatPayV3:
                 logger.error(f"微信下单失败: {e}")
                 raise RuntimeError(f"微信下单失败: {e}") from e
 
-        return self._build_jsapi_params(prepay_id)
+        params = self._build_jsapi_params(prepay_id)
+        params["prepay_id"] = prepay_id
+        params["out_trade_no"] = out_trade_no
+        return params
 
     def _build_jsapi_params(self, prepay_id: str) -> dict:
         """根据 prepay_id 构造前端支付参数"""

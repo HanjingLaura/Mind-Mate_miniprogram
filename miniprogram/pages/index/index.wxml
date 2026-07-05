@@ -36,6 +36,36 @@
           time="{{item.timeLabel}}"
           isTyping="{{item.isTyping}}"
         />
+        <view class="feedback-row" wx:if="{{item.role == 'assistant' && !item.feedbackSubmitted}}">
+          <text
+            class="feedback-chip"
+            bindtap="onFeedbackTap"
+            data-index="{{index}}"
+            data-id="{{item.id}}"
+            data-rating="useful"
+          >有用</text>
+          <text
+            class="feedback-chip"
+            bindtap="onFeedbackTap"
+            data-index="{{index}}"
+            data-id="{{item.id}}"
+            data-rating="too_soft"
+          >太轻</text>
+          <text
+            class="feedback-chip"
+            bindtap="onFeedbackTap"
+            data-index="{{index}}"
+            data-id="{{item.id}}"
+            data-rating="too_hard"
+          >太狠</text>
+          <text
+            class="feedback-chip"
+            bindtap="onFeedbackTap"
+            data-index="{{index}}"
+            data-id="{{item.id}}"
+            data-rating="useless"
+          >没用</text>
+        </view>
       </block>
     </view>
     <view id="scroll-bottom"></view>
@@ -51,18 +81,41 @@
   <!-- VIP 弹窗 -->
   <view class="vip-overlay" wx:if="{{showVipModal}}" bindtap="closeVipModal">
     <view class="vip-modal" catchtap="">
-      <text class="vip-title">全天候监督</text>
-      <text class="vip-desc">升级 VIP 解锁午后借口狙击 + 晚间终局清算</text>
+      <view class="vip-handle"></view>
+      <text class="vip-kicker">Mind-Mate VIP</text>
+      <text class="vip-title">你逃的时候，我会把你叫回来</text>
+      <text class="vip-desc">长时间没行动、任务快拖黄、晚上还没完成时，通过微信通知敲你一下。</text>
       <view class="vip-features">
-        <text class="vip-feat">三段式主动监督</text>
-        <text class="vip-feat">昨日翻旧账吐槽</text>
-        <text class="vip-feat">专属硬核催促策略</text>
+        <view class="vip-feat">
+          <text class="vip-feat-title">午后随机狙击</text>
+          <text class="vip-feat-desc">不是闹钟，到你最容易摸鱼的时候出现。</text>
+        </view>
+        <view class="vip-feat">
+          <text class="vip-feat-title">长时间无进展追问</text>
+          <text class="vip-feat-desc">任务放太久，我会直接问你卡在哪。</text>
+        </view>
+        <view class="vip-feat">
+          <text class="vip-feat-title">未完成追责</text>
+          <text class="vip-feat-desc">晚上没做完，第二天继续翻旧账。</text>
+        </view>
       </view>
       <text class="vip-price">¥1.99 体验包</text>
       <view class="vip-actions">
         <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
         <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
       </view>
+    </view>
+  </view>
+
+  <view class="reason-overlay" wx:if="{{showVipReasonModal}}" bindtap="closeVipReasonModal">
+    <view class="reason-sheet" catchtap="">
+      <text class="reason-title">暂不升级的原因？</text>
+      <block wx:for="{{vipReasonOptions}}" wx:key="value">
+        <view class="reason-item" bindtap="onVipReasonTap" data-value="{{item.value}}">
+          <text class="reason-label">{{item.label}}</text>
+        </view>
+      </block>
+      <view class="reason-cancel" bindtap="closeVipReasonModal">不填了</view>
     </view>
   </view>
 

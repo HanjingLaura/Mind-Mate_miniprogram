@@ -4,9 +4,9 @@
  */
 
 const app = getApp()
-const { CLOUD_ENV_ID, CLOUD_SERVICE_NAME } = require('./config')
+const { CLOUD_ENV_ID, CLOUD_SERVICE_NAME, DIRECT_API_BASE } = require('./config')
 
-const LOCAL_API_BASE = 'http://localhost:8000'
+const LOCAL_API_BASE = DIRECT_API_BASE || 'http://localhost:8000'
 
 /**
  * 通用请求方法 — 自动选择传输通道

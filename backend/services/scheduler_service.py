@@ -6,13 +6,15 @@
 - 增加用户免打扰时段
 """
 
+import json
 import logging
 from datetime import datetime, date, timedelta
 
 from sqlalchemy.orm import Session
 
-from models import User, DailyTask, Conversation, Message, SubscribeAuth
+from models import User, DailyTask, Conversation, Message, SubscribeAuth, SupervisionLog, AnalyticsEvent
 from services.llm_service import generate_supervision
+from services.user_state import normalize_vip_status
 
 logger = logging.getLogger(__name__)
 
@@ -32,42 +34,169 @@ def get_effective_date(now: datetime | None = None) -> date:
     return now.date()
 
 
-def should_supervise(user: User, supervision_type: str, now: datetime | None = None) -> bool:
-    """判断是否该对用户发送监督催促
+def _minutes(value) -> int:
+    return value.hour * 60 + value.minute
 
-    Args:
-        user: 用户对象
-        supervision_type: "morning" / "afternoon" / "evening"
-        now: 当前时间
 
-    Returns:
-        是否需要催促
-    """
+def _has_supervision_log(db: Session, user_id: int, task_date: date, supervision_type: str) -> bool:
+    return db.query(SupervisionLog).filter(
+        SupervisionLog.user_id == user_id,
+        SupervisionLog.task_date == task_date,
+        SupervisionLog.supervision_type == supervision_type,
+    ).first() is not None
+
+
+def _record_event(db: Session, user: User, event_name: str, properties: dict):
+    event = AnalyticsEvent(
+        user_id=user.id,
+        openid=user.openid,
+        event_name=event_name,
+        properties=json.dumps(properties, ensure_ascii=False),
+    )
+    db.add(event)
+    db.commit()
+
+
+def _has_uncompleted_tasks(db: Session, user_id: int, task_date: date) -> bool:
+    return db.query(DailyTask).filter(
+        DailyTask.user_id == user_id,
+        DailyTask.task_date == task_date,
+        DailyTask.is_completed == False,
+    ).first() is not None
+
+
+def _latest_task_activity(db: Session, user_id: int, task_date: date) -> datetime | None:
+    tasks = db.query(DailyTask).filter(
+        DailyTask.user_id == user_id,
+        DailyTask.task_date == task_date,
+    ).all()
+    times = []
+    for task in tasks:
+        if task.created_at:
+            times.append(task.created_at)
+        if task.completed_at:
+            times.append(task.completed_at)
+    return max(times) if times else None
+
+
+def _stable_afternoon_minute(user_id: int, task_date: date) -> int:
+    """给每个用户每天一个稳定的 14:00~17:30 随机狙击点。"""
+    seed = user_id * 97 + task_date.toordinal()
+    return 14 * 60 + (seed % 210)
+
+
+def get_due_supervision_types(db: Session, user: User, now: datetime | None = None) -> list[str]:
+    """根据免费/VIP权益和任务状态，返回本轮应触发的监督类型。"""
     if now is None:
         now = datetime.now()
 
-    # 下午和晚间监督仅对 VIP 用户生效
-    if supervision_type in ("afternoon", "evening") and not user.is_vip:
-        return False
+    user = normalize_vip_status(db, user)
+    task_date = get_effective_date(now)
+    now_minutes = now.hour * 60 + now.minute
+    due: list[str] = []
 
-    current_time = now.time()
-    target_time_map = {
-        "morning": user.morning_time,
-        "afternoon": user.afternoon_time,
-        "evening": user.evening_time,
-    }
+    yesterday = task_date - timedelta(days=1)
+    has_yesterday_unfinished = _has_uncompleted_tasks(db, user.id, yesterday)
 
-    target_time = target_time_map.get(supervision_type)
-    if target_time is None:
-        return False
+    # 晨间：免费用户体验今日目标；VIP 用户如有昨日未完成则优先翻旧账。
+    if 6 <= now.hour < 12 and now_minutes >= _minutes(user.morning_time):
+        morning_type = "unfinished_followup" if user.is_vip and has_yesterday_unfinished else "morning_goal"
+        if not _has_supervision_log(db, user.id, task_date, morning_type):
+            due.append(morning_type)
 
-    # 在目标时间的 ±5 分钟窗口内触发
-    from datetime import timedelta as td
-    time_diff = abs(
-        (current_time.hour * 60 + current_time.minute)
-        - (target_time.hour * 60 + target_time.minute)
+    # 晚间：所有用户每天一次复盘。
+    if 18 <= now.hour <= 23 and now_minutes >= _minutes(user.evening_time):
+        if not _has_supervision_log(db, user.id, task_date, "evening_review"):
+            due.append("evening_review")
+
+    if not user.is_vip:
+        return due
+
+    # VIP：午后稳定随机狙击，只在还有未完成任务时触发。
+    if _has_uncompleted_tasks(db, user.id, task_date):
+        random_minute = _stable_afternoon_minute(user.id, task_date)
+        if 13 <= now.hour < 18 and now_minutes >= random_minute:
+            if not _has_supervision_log(db, user.id, task_date, "afternoon_nudge"):
+                due.append("afternoon_nudge")
+
+        # VIP：长时间无打卡追问。第一版保持每日最多一次，防止打扰过重。
+        latest = _latest_task_activity(db, user.id, task_date)
+        if latest and 9 <= now.hour < 22 and now - latest >= timedelta(hours=2):
+            if not _has_supervision_log(db, user.id, task_date, "behavior_nudge"):
+                due.append("behavior_nudge")
+
+    return due
+
+
+def should_supervise(user: User, supervision_type: str, now: datetime | None = None) -> bool:
+    """兼容旧调用：新逻辑请使用 get_due_supervision_types。"""
+    if now is None:
+        now = datetime.now()
+    current = now.hour * 60 + now.minute
+    if supervision_type == "morning":
+        return 6 <= now.hour < 12 and current >= _minutes(user.morning_time)
+    if supervision_type == "evening":
+        return 18 <= now.hour <= 23 and current >= _minutes(user.evening_time)
+    if supervision_type == "afternoon":
+        return user.is_vip and 13 <= now.hour < 18
+    return False
+
+
+def _to_prompt_type(supervision_type: str) -> str:
+    if supervision_type in ("morning_goal", "unfinished_followup"):
+        return "morning"
+    if supervision_type == "evening_review":
+        return "evening"
+    return "afternoon"
+
+
+def _scene_for_type(supervision_type: str) -> str:
+    if supervision_type == "morning_goal":
+        return "morning_goal"
+    if supervision_type == "evening_review":
+        return "evening_review"
+    if supervision_type == "afternoon_nudge":
+        return "afternoon_nudge"
+    if supervision_type == "behavior_nudge":
+        return "behavior_nudge"
+    return "vip_followup"
+
+
+def _consume_subscribe_auth(db: Session, user_id: int, template_id: str, scene: str) -> SubscribeAuth | None:
+    auth = db.query(SubscribeAuth).filter(
+        SubscribeAuth.user_id == user_id,
+        SubscribeAuth.template_id == template_id,
+        SubscribeAuth.used == False,
+        SubscribeAuth.scene == scene,
+    ).order_by(SubscribeAuth.auth_time.asc()).first()
+    if auth:
+        return auth
+
+    return db.query(SubscribeAuth).filter(
+        SubscribeAuth.user_id == user_id,
+        SubscribeAuth.template_id == template_id,
+        SubscribeAuth.used == False,
+    ).order_by(SubscribeAuth.auth_time.asc()).first()
+
+
+def _create_supervision_log(
+    db: Session,
+    user_id: int,
+    supervision_type: str,
+    task_date: date,
+    channel: str,
+    message_id: int | None,
+):
+    log = SupervisionLog(
+        user_id=user_id,
+        supervision_type=supervision_type,
+        task_date=task_date,
+        channel=channel,
+        message_id=message_id,
     )
-    return time_diff <= 5
+    db.add(log)
+    db.commit()
+    return log
 
 
 def get_user_task_summary(db: Session, user_id: int, task_date: date) -> dict:
@@ -110,7 +239,7 @@ def finalize_previous_day_tasks(db: Session, now: datetime | None = None) -> int
     return len(tasks)
 
 
-def save_supervision_as_message(db: Session, user_id: int, content: str, effective_date: date):
+def save_supervision_as_message(db: Session, user_id: int, content: str, effective_date: date) -> Message:
     """将监督消息存入对话记录，用户打开小程序时可见"""
     conv = db.query(Conversation).filter(
         Conversation.user_id == user_id,
@@ -125,6 +254,8 @@ def save_supervision_as_message(db: Session, user_id: int, content: str, effecti
     msg = Message(conversation_id=conv.id, role="assistant", content=content)
     db.add(msg)
     db.commit()
+    db.refresh(msg)
+    return msg
 
 
 async def run_supervision_cycle(db: Session) -> list[dict]:
@@ -144,36 +275,33 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
     users = db.query(User).all()
 
     for user in users:
-        for supervision_type in ["morning", "afternoon", "evening"]:
-            if not should_supervise(user, supervision_type, now):
-                continue
+        due_types = get_due_supervision_types(db, user, now)
+        for supervision_type in due_types:
 
             summary = get_user_task_summary(db, user.id, effective_date)
 
-            if supervision_type == "morning":
+            if supervision_type in ("morning_goal", "unfinished_followup"):
                 yesterday = get_effective_date(now - timedelta(days=1))
                 yesterday_summary = get_user_task_summary(db, user.id, yesterday)
                 summary["uncompleted_tasks"].extend(yesterday_summary["uncompleted_tasks"])
 
             try:
                 message = await generate_supervision(
-                    supervision_type=supervision_type,
+                    supervision_type=_to_prompt_type(supervision_type),
                     goal=summary["goal"],
                     completed_tasks=summary["completed_tasks"],
                     uncompleted_tasks=summary["uncompleted_tasks"],
                 )
 
                 # 存入对话记录
-                save_supervision_as_message(db, user.id, message, effective_date)
+                msg = save_supervision_as_message(db, user.id, message, effective_date)
 
                 # 尝试推送订阅消息
+                channel = "in_app"
                 template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
                 if template_id:
-                    auth = db.query(SubscribeAuth).filter(
-                        SubscribeAuth.user_id == user.id,
-                        SubscribeAuth.template_id == template_id,
-                        SubscribeAuth.used == False,
-                    ).first()
+                    scene = _scene_for_type(supervision_type)
+                    auth = _consume_subscribe_auth(db, user.id, template_id, scene)
                     if auth:
                         sent = await wechat_service.send_subscribe_message(
                             openid=user.openid,
@@ -184,8 +312,32 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                             },
                         )
                         if sent:
+                            channel = "wechat"
                             auth.used = True
+                            auth.used_at = now
                             db.commit()
+                            _record_event(db, user, "wechat_notice_sent", {
+                                "supervision_type": supervision_type,
+                                "scene": scene,
+                            })
+                    else:
+                        _record_event(db, user, "wechat_notice_no_auth", {
+                            "supervision_type": supervision_type,
+                            "scene": scene,
+                        })
+
+                _create_supervision_log(
+                    db,
+                    user_id=user.id,
+                    supervision_type=supervision_type,
+                    task_date=effective_date,
+                    channel=channel,
+                    message_id=msg.id,
+                )
+                _record_event(db, user, "supervision_generated", {
+                    "supervision_type": supervision_type,
+                    "channel": channel,
+                })
 
                 results.append({
                     "user_id": user.id,

@@ -6,7 +6,7 @@
 """
 
 from datetime import date, time, datetime
-from typing import Optional
+from typing import Optional, Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -120,6 +120,12 @@ class PayOrderRequest(BaseModel):
     openid: str = Field(..., min_length=1)
 
 
+class PayCancelRequest(BaseModel):
+    """支付取消记录"""
+    openid: str = Field(..., min_length=1)
+    out_trade_no: str = Field(..., min_length=1, max_length=64)
+
+
 class PayOrderOut(BaseModel):
     """支付下单返回 — 前端用此参数拉起 wx.requestPayment"""
     time_stamp: str
@@ -127,6 +133,15 @@ class PayOrderOut(BaseModel):
     package: str
     sign_type: str = "RSA"
     pay_sign: str
+    out_trade_no: str
+
+
+class PayStatusOut(BaseModel):
+    """支付状态查询返回"""
+    is_vip: bool
+    vip_expire_at: Optional[datetime] = None
+    latest_order_status: str = ""
+    latest_out_trade_no: str = ""
 
 
 # ────────────── Admin ──────────────
@@ -146,3 +161,21 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ────────────── Feedback / Analytics ──────────────
+
+class FeedbackCreate(BaseModel):
+    """用户轻反馈"""
+    openid: str = Field(..., min_length=1)
+    target_type: str = Field(..., min_length=1, max_length=64)
+    target_id: str = Field("", max_length=64)
+    rating: str = Field(..., min_length=1, max_length=64)
+    comment: str = Field("", max_length=500)
+
+
+class AnalyticsEventCreate(BaseModel):
+    """产品事件埋点"""
+    openid: str = Field("", max_length=128)
+    event_name: str = Field(..., min_length=1, max_length=128)
+    properties: dict[str, Any] = Field(default_factory=dict)

@@ -37,6 +37,7 @@ class User(Base):
     # 关系
     daily_tasks = relationship("DailyTask", back_populates="user", cascade="all, delete-orphan")
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
+    pay_orders = relationship("PayOrder", back_populates="user", cascade="all, delete-orphan")
 
 
 class DailyTask(Base):
@@ -84,11 +85,68 @@ class Message(Base):
 
 
 class SubscribeAuth(Base):
-    """订阅消息授权记录 — 追踪一次性授权"""
+    """订阅消息授权记录 — 一条记录代表一条可消费的通知额度"""
     __tablename__ = "subscribe_auths"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     template_id = Column(String(128), nullable=False, comment="模板 ID")
+    scene = Column(String(64), default="general", comment="授权场景")
     auth_time = Column(DateTime, default=datetime.utcnow, comment="授权时间")
     used = Column(Boolean, default=False, comment="是否已消费")
+    used_at = Column(DateTime, nullable=True, comment="消费时间")
+
+
+class PayOrder(Base):
+    """微信支付订单 — 用于付费漏斗和回调对账"""
+    __tablename__ = "pay_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    out_trade_no = Column(String(64), unique=True, index=True, nullable=False, comment="商户订单号")
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    openid = Column(String(128), index=True, nullable=False)
+    amount_cents = Column(Integer, nullable=False, comment="金额，单位分")
+    status = Column(String(32), default="created", index=True, comment="created/paid/failed/cancelled")
+    prepay_id = Column(String(128), default="", comment="微信预支付交易会话 ID")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    paid_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="pay_orders")
+
+
+class SupervisionLog(Base):
+    """监督触发日志 — 防止重复催促并分析触达效果"""
+    __tablename__ = "supervision_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    supervision_type = Column(String(64), nullable=False, index=True)
+    task_date = Column(Date, nullable=False, index=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    channel = Column(String(32), default="in_app", comment="wechat/in_app")
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+
+
+class Feedback(Base):
+    """轻量反馈 — 用于判断监督文案是否有效或冒犯"""
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_type = Column(String(64), nullable=False, comment="chat/supervision/vip_modal/review")
+    target_id = Column(String(64), default="")
+    rating = Column(String(64), nullable=False, comment="useful/too_soft/too_hard/useless")
+    comment = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AnalyticsEvent(Base):
+    """产品事件埋点 — 支撑付费和留存漏斗分析"""
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    openid = Column(String(128), default="", index=True)
+    event_name = Column(String(128), nullable=False, index=True)
+    properties = Column(Text, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)

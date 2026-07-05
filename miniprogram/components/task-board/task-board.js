@@ -62,6 +62,7 @@ Component({
 
       try {
         await api.post('/api/tasks/checkin', { task_id: id, openid: this.properties.openid })
+        this._trackEvent('task_checkin', { task_id: id })
         this.setData({ [`tasks[${index}].is_completed`]: true })
         this._updateCounts(this.data.tasks)
         wx.vibrateShort({ type: 'light' })
@@ -79,6 +80,7 @@ Component({
           if (res.confirm) {
             try {
               await api.del('/api/tasks/delete', { task_id: id, openid: this.properties.openid })
+              this._trackEvent('task_delete', { task_id: id })
               const tasks = this.data.tasks.filter((_, i) => i !== index)
               this.setData({ tasks })
               this._updateCounts(tasks)
@@ -104,6 +106,7 @@ Component({
           openid: this.properties.openid,
           content,
         })
+        this._trackEvent('task_created', { task_id: task.id, source: 'manual' })
         const tasks = [...this.data.tasks, task]
         this.setData({ tasks, newTask: '' })
         this._updateCounts(tasks)
@@ -137,6 +140,17 @@ Component({
         this.loadTasks()
         return
       }
+
+      changes.forEach(c => {
+        const eventName = c.action === 'done'
+          ? 'task_checkin'
+          : (c.action === 'add' ? 'task_created' : `task_${c.action}`)
+        this._trackEvent(eventName, {
+          task_id: c.task_id || 0,
+          source: 'ai',
+          action: c.action,
+        })
+      })
 
       // 分类变更：删除 vs 其他
       const changeMap = {}
@@ -184,6 +198,15 @@ Component({
           this.setData({ tasks: cleared })
         }, 2000)
       }
+    },
+
+    _trackEvent(eventName, properties = {}) {
+      if (!this.properties.openid) return
+      api.post('/api/events', {
+        openid: this.properties.openid,
+        event_name: eventName,
+        properties,
+      }).catch(() => {})
     }
   }
 })

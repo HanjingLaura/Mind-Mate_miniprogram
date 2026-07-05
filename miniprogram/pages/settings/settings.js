@@ -14,6 +14,7 @@ Page({
     eveningTime: '21:00',
     isVip: false,
     showVipModal: false,
+    showAdvanced: false,
   },
 
   onLoad(options) {
@@ -78,6 +79,7 @@ Page({
   onUpgradeTap() {
     if (this.data.isVip) return
     this.setData({ showVipModal: true })
+    this.trackEvent('vip_modal_view', { source: 'settings' })
   },
 
   onUpgradeVip() {
@@ -85,6 +87,7 @@ Page({
       wx.showToast({ title: '你已经是VIP了', icon: 'none' })
       return
     }
+    this.trackEvent('vip_upgrade_click', { source: 'settings' })
     this.createPayOrder()
   },
 
@@ -93,6 +96,7 @@ Page({
       const params = await api.post('/api/pay/create_order', {
         openid: this.data.openid,
       })
+      this.trackEvent('pay_order_created', { out_trade_no: params.out_trade_no || '', source: 'settings' })
 
       this.setData({ showVipModal: false })
 
@@ -103,11 +107,17 @@ Page({
         signType: params.sign_type,
         paySign: params.pay_sign,
         success: () => {
+          this.trackEvent('pay_success', { out_trade_no: params.out_trade_no || '', source: 'settings' })
           wx.showToast({ title: '支付成功，确认中...', icon: 'none' })
           this.pollVipStatus()
+          this.requestNotificationAuth('vip_followup')
         },
         fail: (err) => {
-          if (err.errMsg !== 'requestPayment:fail cancel') {
+          if (err.errMsg === 'requestPayment:fail cancel') {
+            this.trackEvent('pay_cancel', { out_trade_no: params.out_trade_no || '', source: 'settings' })
+            this.markPayCancelled(params.out_trade_no)
+          } else {
+            this.trackEvent('pay_fail', { out_trade_no: params.out_trade_no || '', source: 'settings', errMsg: err.errMsg || '' })
             wx.showToast({ title: '支付失败', icon: 'none' })
           }
         }
@@ -119,7 +129,12 @@ Page({
   },
 
   closeVipModal() {
+    this.trackEvent('vip_modal_dismiss', { source: 'settings' })
     this.setData({ showVipModal: false })
+  },
+
+  toggleAdvanced() {
+    this.setData({ showAdvanced: !this.data.showAdvanced })
   },
 
   async pollVipStatus(maxRetries = 5) {
@@ -130,6 +145,10 @@ Page({
         if (res.is_vip) {
           this.setData({ isVip: true })
           app.globalData.isVip = true
+          this.trackEvent('vip_activated', {
+            out_trade_no: res.latest_out_trade_no || '',
+            source: 'settings',
+          })
           wx.showToast({ title: 'VIP已生效！', icon: 'success' })
           return
         }
@@ -138,7 +157,19 @@ Page({
     wx.showToast({ title: '支付确认中，请稍后查看', icon: 'none' })
   },
 
+  markPayCancelled(outTradeNo) {
+    if (!outTradeNo) return
+    api.post('/api/pay/cancel', {
+      openid: this.data.openid,
+      out_trade_no: outTradeNo,
+    }).catch(() => {})
+  },
+
   onNotificationTap() {
+    this.requestNotificationAuth('general')
+  },
+
+  requestNotificationAuth(scene = 'general') {
     if (app.globalData.isDevMode) {
       wx.showToast({ title: '开发模式暂不支持', icon: 'none' })
       return
@@ -155,11 +186,14 @@ Page({
           api.post('/api/user/subscribe_auth', {
             openid: this.data.openid,
             template_id: templateId,
+            scene,
           })
+          this.trackEvent('subscribe_auth_accept', { scene, source: 'settings' })
           wx.showToast({ title: '已开启提醒', icon: 'success' })
         }
       },
       fail: () => {
+        this.trackEvent('subscribe_auth_fail', { scene, source: 'settings' })
         wx.showToast({ title: '授权失败', icon: 'none' })
       }
     })
@@ -167,5 +201,14 @@ Page({
 
   onAdminTap() {
     wx.navigateTo({ url: `/pages/admin/admin?openid=${this.data.openid}` })
+  },
+
+  trackEvent(eventName, properties = {}) {
+    if (!this.data.openid) return
+    api.post('/api/events', {
+      openid: this.data.openid,
+      event_name: eventName,
+      properties,
+    }).catch(() => {})
   }
 })

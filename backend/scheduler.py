@@ -46,9 +46,18 @@ async def supervision_job():
 
 def start_scheduler():
     """启动调度器"""
-    scheduler.add_job(supervision_job, "interval", minutes=5, id="supervision")
+    if scheduler.running:
+        return
+    scheduler.add_job(supervision_job, "interval", minutes=5, id="supervision", replace_existing=True)
     scheduler.start()
     logger.info("监督调度器已启动 (每5分钟检查)")
+
+
+def shutdown_scheduler():
+    """关闭调度器"""
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("监督调度器已关闭")
 
 
 if __name__ == "__main__":

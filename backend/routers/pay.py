@@ -12,10 +12,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
-from models import User
-from schemas import PayOrderRequest, PayOrderOut
-from services.pay_service import wechat_pay
+from models import User, PayOrder
+from schemas import PayOrderRequest, PayCancelRequest, PayOrderOut, PayStatusOut
+from services.pay_service import wechat_pay, generate_out_trade_no
+from services.user_state import normalize_vip_status
 
 router = APIRouter(prefix="/api/pay", tags=["pay"])
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ async def create_pay_order(req: PayOrderRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.openid == req.openid).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
+    user = normalize_vip_status(db, user)
 
     if user.is_vip:
         raise HTTPException(status_code=400, detail="你已经是 VIP 了，不需要重复购买")
@@ -40,10 +43,29 @@ async def create_pay_order(req: PayOrderRequest, db: Session = Depends(get_db)):
         )
 
     try:
-        params = await wechat_pay.create_order(openid=req.openid)
+        out_trade_no = generate_out_trade_no()
+        order = PayOrder(
+            out_trade_no=out_trade_no,
+            user_id=user.id,
+            openid=req.openid,
+            amount_cents=settings.VIP_PRICE_CENTS,
+            status="created",
+        )
+        db.add(order)
+        db.commit()
+
+        params = await wechat_pay.create_order(openid=req.openid, out_trade_no=out_trade_no)
+        order.prepay_id = params.get("prepay_id", "")
+        db.commit()
         return params
     except Exception as e:
         logger.error(f"下单失败: {e}")
+        try:
+            if "order" in locals():
+                order.status = "failed"
+                db.commit()
+        except Exception:
+            db.rollback()
         raise HTTPException(status_code=500, detail="下单失败，请稍后重试")
 
 
@@ -71,24 +93,35 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
 
         if trade_state != "SUCCESS":
             logger.info(f"订单 {out_trade_no} 状态非成功: {trade_state}")
+            order = db.query(PayOrder).filter(PayOrder.out_trade_no == out_trade_no).first()
+            if order:
+                order.status = "failed"
+                db.commit()
             return {"code": "SUCCESS", "message": "已接收"}
 
+        order = db.query(PayOrder).filter(PayOrder.out_trade_no == out_trade_no).first()
+        if not order:
+            logger.error(f"回调订单不存在: {out_trade_no}")
+            return {"code": "FAIL", "message": "订单不存在"}
+
         # 升级 VIP
-        user = db.query(User).filter(User.openid == openid).first()
+        user = db.query(User).filter(User.id == order.user_id).first()
         if not user:
-            logger.error(f"回调用户不存在: {openid}")
+            logger.error(f"回调用户不存在: {order.user_id}")
             return {"code": "FAIL", "message": "用户不存在"}
 
-        if user.is_vip:
-            logger.info(f"用户 {openid} 已是 VIP，跳过升级")
+        if order.status == "paid":
+            logger.info(f"订单 {out_trade_no} 已处理，跳过重复回调")
             return {"code": "SUCCESS", "message": "已处理"}
 
-        user.is_vip = True
         from datetime import datetime, timedelta
+        order.status = "paid"
+        order.paid_at = datetime.utcnow()
+        user.is_vip = True
         user.vip_expire_at = datetime.utcnow() + timedelta(days=30)
         db.commit()
 
-        logger.info(f"用户 {openid} VIP 升级成功")
+        logger.info(f"用户 {user.openid} VIP 升级成功")
         return {"code": "SUCCESS", "message": "OK"}
 
     except Exception as e:
@@ -100,14 +133,36 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
         return {"code": "FAIL", "message": "处理异常"}
 
 
-@router.get("/status/{openid}")
+@router.post("/cancel")
+async def cancel_pay_order(req: PayCancelRequest, db: Session = Depends(get_db)):
+    """前端支付取消后回写订单状态，用于付费漏斗分析。"""
+    order = db.query(PayOrder).filter(
+        PayOrder.out_trade_no == req.out_trade_no,
+        PayOrder.openid == req.openid,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    if order.status == "created":
+        order.status = "cancelled"
+        db.commit()
+    return {"success": True, "status": order.status}
+
+
+@router.get("/status/{openid}", response_model=PayStatusOut)
 async def get_pay_status(openid: str, db: Session = Depends(get_db)):
     """查询用户 VIP 状态"""
     user = db.query(User).filter(User.openid == openid).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
+    user = normalize_vip_status(db, user)
+
+    latest_order = db.query(PayOrder).filter(
+        PayOrder.user_id == user.id
+    ).order_by(PayOrder.created_at.desc()).first()
 
     return {
         "is_vip": user.is_vip,
-        "vip_expire_at": user.vip_expire_at.isoformat() if user.vip_expire_at else None,
+        "vip_expire_at": user.vip_expire_at,
+        "latest_order_status": latest_order.status if latest_order else "",
+        "latest_out_trade_no": latest_order.out_trade_no if latest_order else "",
     }

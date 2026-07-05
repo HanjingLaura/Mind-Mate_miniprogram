@@ -1,86 +1,110 @@
-<!-- 设置页 — 作息时间调整 + VIP 状态 + 通知 -->
+<!-- 设置页 — 监督权益、通知授权与高级时间设置 -->
 <view class="settings-page">
+  <view class="profile-card">
+    <view class="profile-main">
+      <text class="profile-title">心智同行</text>
+      <text class="profile-desc">{{isVip ? 'VIP 已开启：主动监督会更频繁地把你叫回来' : '普通版：先体验晨间目标和晚间复盘'}}</text>
+    </view>
+    <text class="profile-tag {{isVip ? 'active' : ''}}">{{isVip ? 'VIP' : '普通'}}</text>
+  </view>
+
   <view class="settings-section">
-    <text class="section-title">监督作息时间</text>
-    <text class="section-desc">调整后大模型将在你设定的时间点主动催促</text>
-
-    <view class="time-item">
-      <view class="time-label">
-        <text class="label-icon">🌅</text>
-        <text class="label-text">晨间唤醒</text>
+    <text class="section-title">监督方式</text>
+    <view class="benefit-row">
+      <view class="benefit-mark">早</view>
+      <view class="benefit-copy">
+        <text class="benefit-title">晨间目标</text>
+        <text class="benefit-desc">每天帮你把今天要做的事摆到台面上。</text>
       </view>
-      <picker mode="time" value="{{morningTime}}" bindchange="onMorningChange">
-        <text class="time-value">{{morningTime}}</text>
-      </picker>
+      <text class="benefit-status">免费</text>
+    </view>
+    <view class="benefit-row">
+      <view class="benefit-mark">夜</view>
+      <view class="benefit-copy">
+        <text class="benefit-title">晚间复盘</text>
+        <text class="benefit-desc">晚上回来清算完成情况，没做完也别装没事。</text>
+      </view>
+      <text class="benefit-status">免费</text>
+    </view>
+    <view class="benefit-row locked">
+      <view class="benefit-mark">追</view>
+      <view class="benefit-copy">
+        <text class="benefit-title">不定时主动追问</text>
+        <text class="benefit-desc">长时间没行动、午后摸鱼、任务拖黄时，通过微信通知敲你。</text>
+      </view>
+      <text class="benefit-status vip">{{isVip ? '已开' : 'VIP'}}</text>
+    </view>
+  </view>
+
+  <view class="settings-section">
+    <text class="section-title">微信通知</text>
+    <view class="notify-card" bindtap="onNotificationTap">
+      <view class="notify-copy">
+        <text class="notify-title">补充提醒额度</text>
+        <text class="notify-desc">微信订阅消息需要你授权。授权一次，系统可在关键时刻提醒一次。</text>
+      </view>
+      <text class="notify-action">去授权</text>
+    </view>
+  </view>
+
+  <view class="settings-section" wx:if="{{!isVip}}">
+    <view class="upgrade-card" bindtap="onUpgradeTap">
+      <view class="upgrade-copy">
+        <text class="upgrade-title">开通 VIP 体验包</text>
+        <text class="upgrade-desc">解锁午后随机狙击、长时间无进展追问、未完成翻旧账。</text>
+      </view>
+      <text class="upgrade-price">¥1.99</text>
+    </view>
+  </view>
+
+  <view class="settings-section">
+    <view class="section-head" bindtap="toggleAdvanced">
+      <text class="section-title no-margin">高级时间设置</text>
+      <text class="section-arrow">{{showAdvanced ? '收起' : '展开'}}</text>
     </view>
 
-    <view class="time-item">
-      <view class="time-label">
-        <text class="label-icon">⚡</text>
-        <text class="label-text">午后狙击</text>
+    <view wx:if="{{showAdvanced}}">
+      <view class="time-item">
+        <text class="label-text">晨间目标</text>
+        <picker mode="time" value="{{morningTime}}" bindchange="onMorningChange">
+          <text class="time-value">{{morningTime}}</text>
+        </picker>
       </view>
-      <picker mode="time" value="{{afternoonTime}}" bindchange="onAfternoonChange">
-        <view class="time-value-wrap">
-          <text class="time-value">{{afternoonTime}}</text>
-          <text class="vip-badge" wx:if="{{!isVip}}">VIP</text>
-        </view>
-      </picker>
-    </view>
-
-    <view class="time-item">
-      <view class="time-label">
-        <text class="label-icon">🌙</text>
-        <text class="label-text">晚间清算</text>
+      <view class="time-item">
+        <text class="label-text">午后狙击参考点</text>
+        <picker mode="time" value="{{afternoonTime}}" bindchange="onAfternoonChange">
+          <view class="time-value-wrap">
+            <text class="time-value">{{afternoonTime}}</text>
+            <text class="mini-vip" wx:if="{{!isVip}}">VIP</text>
+          </view>
+        </picker>
       </view>
-      <picker mode="time" value="{{eveningTime}}" bindchange="onEveningChange">
-        <view class="time-value-wrap">
+      <view class="time-item">
+        <text class="label-text">晚间复盘</text>
+        <picker mode="time" value="{{eveningTime}}" bindchange="onEveningChange">
           <text class="time-value">{{eveningTime}}</text>
-          <text class="vip-badge" wx:if="{{!isVip}}">VIP</text>
-        </view>
-      </picker>
+        </picker>
+      </view>
     </view>
   </view>
 
-  <view class="settings-section">
-    <text class="section-title">通知与提醒</text>
-    <view class="notify-item" bindtap="onNotificationTap">
-      <text class="notify-label">监督提醒推送</text>
-      <text class="notify-hint">点击授权</text>
-    </view>
-  </view>
-
-  <view class="settings-section">
-    <text class="section-title">VIP 状态</text>
-    <view class="vip-status">
-      <text class="vip-label">{{isVip ? '已激活' : '未激活'}}</text>
-      <text class="tag {{isVip ? 'tag-vip' : ''}}">{{isVip ? 'VIP' : '普通'}}</text>
-    </view>
-    <button
-      class="btn-primary"
-      wx:if="{{!isVip}}"
-      bindtap="onUpgradeTap"
-    >升级 VIP</button>
-  </view>
-
-  <!-- VIP 弹窗 -->
   <view class="vip-overlay" wx:if="{{showVipModal}}" bindtap="closeVipModal">
     <view class="vip-modal" catchtap="">
-      <text class="vip-title">全天候监督</text>
-      <text class="vip-desc">升级 VIP 解锁午后借口狙击 + 晚间终局清算</text>
+      <view class="vip-handle"></view>
+      <text class="vip-kicker">Mind-Mate VIP</text>
+      <text class="vip-title">你逃的时候，我会把你叫回来</text>
+      <text class="vip-desc">开通后，Mind-Mate 会在你长时间没行动、任务快拖黄、晚上还没完成时，通过微信通知敲你一下。</text>
       <view class="vip-features">
-        <text class="vip-feat">三段式主动监督</text>
-        <text class="vip-feat">昨日翻旧账吐槽</text>
-        <text class="vip-feat">专属硬核催促策略</text>
+        <text class="vip-feat">午后随机狙击</text>
+        <text class="vip-feat">长时间无进展追问</text>
+        <text class="vip-feat">未完成任务次日翻旧账</text>
       </view>
       <text class="vip-price">¥1.99 体验包</text>
-      <view class="vip-actions">
-        <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
-        <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
-      </view>
+      <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
+      <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
     </view>
   </view>
 
-  <!-- 隐蔽的管理员入口 -->
   <view class="admin-entry" bindtap="onAdminTap">
     <text class="admin-text">关于</text>
   </view>
