@@ -8,74 +8,11 @@
 }
 
 /* 导航栏 */
-.nav-bar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  height: 88rpx;
-  background: #ededed;
-  border-bottom: 1rpx solid #d9d9d9;
-}
-
-.nav-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.nav-title {
-  font-size: 34rpx;
-  font-weight: 600;
-  color: #333;
-}
-
-.nav-vip-badge {
-  background: linear-gradient(135deg, #ffd700, #ffb347);
-  color: #8b4513;
-  font-size: 20rpx;
-  font-weight: 700;
-  padding: 4rpx 12rpx;
-  border-radius: 12rpx;
-  flex-shrink: 0;
-}
-
-.nav-vip-btn {
-  background: linear-gradient(135deg, #07c160, #06ad56);
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: 600;
-  padding: 4rpx 16rpx;
-  border-radius: 12rpx;
-  flex-shrink: 0;
-}
-
-.nav-actions {
-  position: absolute;
-  right: 24rpx;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.nav-btn {
-  width: 64rpx;
-  height: 64rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-}
-
-.nav-icon {
-  font-size: 36rpx;
-  color: #666;
-}
-
 /* 聊天区域 */
 .chat-area {
   flex: 1;
   overflow-y: auto;
-  padding-top: 16rpx;
+  padding-top: 24rpx;
   padding-bottom: 16rpx;
 }
 
@@ -105,25 +42,9 @@
 .date-text {
   font-size: 22rpx;
   color: #999;
-  background: rgba(0, 0, 0, 0.04);
-  padding: 4rpx 20rpx;
-  border-radius: 8rpx;
-}
-
-.feedback-row {
-  margin: -4rpx 96rpx 18rpx;
-  display: flex;
-  gap: 12rpx;
-  flex-wrap: wrap;
-}
-
-.feedback-chip {
-  font-size: 22rpx;
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1rpx solid #e5e7eb;
-  border-radius: 8rpx;
-  padding: 6rpx 14rpx;
+  background: #e9efea;
+  padding: 5rpx 18rpx;
+  border-radius: 999rpx;
 }
 
 /* 输入区域 */
@@ -136,30 +57,83 @@
 
 .input-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 16rpx;
 }
 
-.chat-input {
+.chat-input-shell {
   flex: 1;
-  height: 72rpx;
-  padding: 0 24rpx;
+  min-height: 80rpx;
+  max-height: 288rpx;
+  padding: 15rpx 24rpx;
   background: #fff;
-  border-radius: 8rpx;
-  color: #333;
-  font-size: 28rpx;
-  border: 1rpx solid #e0e0e0;
+  border-radius: 16rpx;
+  border: 1rpx solid #dfe8e2;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
 }
 
-.input-placeholder {
+.chat-placeholder {
+  position: absolute;
+  left: 24rpx;
+  top: 50%;
+  transform: translateY(-50%);
   color: #bbb;
+  font-size: 28rpx;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chat-input {
+  width: 100%;
+  min-height: 48rpx;
+  max-height: 256rpx;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: #27352d;
+  font-size: 28rpx;
+  line-height: 48rpx;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+/* iOS textarea 的光标按字体基线绘制，单行时需要轻微下移才能视觉居中。 */
+.chat-input.single-line {
+  transform: translateY(6rpx);
+}
+
+.settings-btn {
+  width: 80rpx;
+  height: 80rpx;
+  flex-shrink: 0;
+  border-radius: 16rpx;
+  background: #f7f7f7;
+  border: 1rpx solid #e1e7e3;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-btn:active {
+  background: #edf3ee;
 }
 
 .send-btn {
-  width: 72rpx;
-  height: 72rpx;
-  border-radius: 8rpx;
-  background: #e0e0e0;
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 16rpx;
+  background: #f7f7f7;
+  border: 1rpx solid #e1e7e3;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -167,8 +141,13 @@
 }
 
 .send-btn.active {
-  background: #07c160;
+  background: #f7f7f7;
 }
+
+.send-btn:active {
+  transform: scale(0.96);
+}
+
 
 .send-icon {
   font-size: 36rpx;
@@ -177,7 +156,7 @@
 }
 
 .send-btn.active .send-icon {
-  color: #fff;
+  color: #999;
 }
 
 /* VIP 弹窗 */

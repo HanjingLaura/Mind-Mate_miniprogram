@@ -1,17 +1,18 @@
 /* 任务看板样式 — 始终可见的任务卡片 */
 .task-card {
-  background: #fff;
-  border-radius: 12rpx;
-  margin: 0 24rpx 16rpx;
+  background: #fcfdfc;
+  border: 1rpx solid #e4ece6;
+  border-radius: 24rpx;
+  margin: 0 24rpx 20rpx;
   overflow: hidden;
-  box-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8rpx 28rpx rgba(25, 76, 49, 0.06);
 }
 
 .card-summary {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20rpx 24rpx;
+  padding: 22rpx 24rpx 18rpx;
 }
 
 .summary-left {
@@ -21,9 +22,9 @@
 }
 
 .summary-label {
-  font-size: 26rpx;
+  font-size: 28rpx;
   font-weight: 600;
-  color: #333;
+  color: #27352d;
 }
 
 .summary-count {
@@ -43,28 +44,144 @@
 
 /* 进度条 */
 .progress-bar {
-  height: 6rpx;
-  background: #f0f0f0;
+  height: 8rpx;
+  background: #eaf1ec;
   margin: 0 24rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #07c160, #06ad56);
-  border-radius: 3rpx;
+  background: #07c160;
+  border-radius: 999rpx;
   transition: width 0.3s ease;
 }
 
 .task-list {
-  border-top: 1rpx solid #f0f0f0;
-  padding: 8rpx 24rpx 16rpx;
+  padding: 12rpx 24rpx 18rpx;
+}
+
+/* 执行记忆：强调事实复盘，避免做成排行榜式压力组件 */
+.memory-panel {
+  margin: 12rpx 0 8rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 12rpx;
+  background: #f7faf8;
+  border: 1rpx solid #e2f2e8;
+}
+
+.memory-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.memory-summary-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.memory-title {
+  color: #2f3d35;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.memory-score {
+  color: #07a653;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.memory-rate,
+.memory-streak {
+  color: #6d7c73;
+  font-size: 21rpx;
+}
+
+.memory-streak {
+  padding: 3rpx 10rpx;
+  color: #9a6400;
+  background: #fff4d6;
+  border-radius: 12rpx;
+}
+
+.memory-expand {
+  flex-shrink: 0;
+  color: #7d8a82;
+  font-size: 21rpx;
+}
+
+.memory-detail {
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid #e3ece6;
+}
+
+.memory-group + .memory-group {
+  margin-top: 14rpx;
+}
+
+.memory-group-label {
+  display: block;
+  margin-bottom: 8rpx;
+  color: #66736b;
+  font-size: 21rpx;
+  font-weight: 600;
+}
+
+.memory-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10rpx;
+  margin: 6rpx 0;
+}
+
+.memory-task-dot {
+  width: 24rpx;
+  flex-shrink: 0;
+  font-size: 22rpx;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.completed-dot {
+  color: #07a653;
+}
+
+.pending-dot {
+  color: #d48806;
+}
+
+.memory-task-text,
+.memory-empty-text,
+.memory-no-yesterday {
+  color: #4e5b53;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.memory-empty-text,
+.memory-no-yesterday {
+  color: #929b95;
+}
+
+.memory-footnote {
+  margin-top: 14rpx;
+  color: #98a19b;
+  font-size: 20rpx;
 }
 
 .task-item {
   display: flex;
   align-items: flex-start;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid #f5f5f5;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #edf1ee;
 }
 
 .task-item:last-child {
@@ -72,7 +189,7 @@
 }
 
 .task-item.completed {
-  opacity: 0.5;
+  opacity: 0.68;
 }
 
 .task-check {
@@ -81,10 +198,10 @@
 }
 
 .check-box {
-  width: 36rpx;
-  height: 36rpx;
+  width: 40rpx;
+  height: 40rpx;
   border-radius: 50%;
-  border: 2rpx solid #ccc;
+  border: 2rpx solid #c8d4cc;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -98,14 +215,19 @@
   border-color: #07c160;
 }
 
+.task-check:active .check-box {
+  transform: scale(0.9);
+}
+
 .task-content {
   flex: 1;
+  min-height: 44rpx;
 }
 
 .task-text {
   font-size: 28rpx;
-  color: #333;
-  line-height: 1.5;
+  color: #2f3a33;
+  line-height: 1.55;
 }
 
 .completed .task-text {
@@ -222,15 +344,15 @@
   align-items: center;
   gap: 12rpx;
   padding-top: 16rpx;
-  border-top: 1rpx solid #f0f0f0;
-  margin-top: 8rpx;
+  border-top: 1rpx solid #edf1ee;
+  margin-top: 10rpx;
 }
 
 .add-input {
   flex: 1;
   height: 64rpx;
   padding: 0 20rpx;
-  background: #f5f5f5;
+  background: #f7faf8;
   border-radius: 32rpx;
   font-size: 26rpx;
   color: #333;
@@ -244,7 +366,7 @@
   width: 64rpx;
   height: 64rpx;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: #f7faf8;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -264,4 +386,71 @@
 
 .add-btn.active .add-btn-text {
   color: #fff;
+}
+
+.task-edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(31, 47, 38, 0.32);
+}
+
+.task-edit-sheet {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 36rpx 32rpx calc(32rpx + env(safe-area-inset-bottom));
+  background: #fcfdfc;
+  border-radius: 28rpx 28rpx 0 0;
+}
+
+.task-edit-title {
+  display: block;
+  margin-bottom: 20rpx;
+  color: #25332b;
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.task-edit-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 132rpx;
+  padding: 20rpx;
+  color: #2f3a33;
+  font-size: 28rpx;
+  line-height: 1.55;
+  background: #f1f6f2;
+  border: 1rpx solid #dfe8e2;
+  border-radius: 16rpx;
+}
+
+.task-edit-actions {
+  display: flex;
+  gap: 16rpx;
+  justify-content: flex-end;
+  margin-top: 24rpx;
+}
+
+.task-edit-button {
+  min-width: 128rpx;
+  padding: 18rpx 24rpx;
+  text-align: center;
+  font-size: 27rpx;
+  border-radius: 16rpx;
+}
+
+.task-edit-button.secondary {
+  color: #607066;
+  background: #eef2ef;
+}
+
+.task-edit-button.primary {
+  color: #fff;
+  background: #07c160;
+}
+
+.task-edit-button:active {
+  transform: scale(0.97);
 }

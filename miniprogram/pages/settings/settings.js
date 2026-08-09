@@ -13,24 +13,36 @@ Page({
     afternoonTime: '16:00',
     eveningTime: '21:00',
     isVip: false,
+    vipStatusReady: false,
     showVipModal: false,
     showAdvanced: false,
   },
 
   onLoad(options) {
-    this.setData({ openid: options.openid || app.globalData.openid })
+    const vipStatusReady = app.globalData.vipStatusReady === true
+    this.setData({
+      openid: options.openid || app.globalData.openid,
+      isVip: vipStatusReady && app.globalData.isVip === true,
+      vipStatusReady,
+    })
     this.loadSettings()
   },
 
   async loadSettings() {
     try {
+      const paymentStatus = await api.get(`/api/pay/status/${this.data.openid}`)
       const profile = await api.get(`/api/user/profile/${this.data.openid}`)
+      const isVip = paymentStatus.is_vip || profile.is_vip
       this.setData({
         morningTime: profile.morning_time || '10:00',
         afternoonTime: profile.afternoon_time || '16:00',
         eveningTime: profile.evening_time || '21:00',
-        isVip: profile.is_vip,
+        isVip,
+        vipStatusReady: true,
+        showVipModal: isVip ? false : this.data.showVipModal,
       })
+      app.globalData.isVip = isVip
+      app.globalData.vipStatusReady = true
     } catch (e) {
       console.error('[Settings] 加载设置失败', e)
     }
@@ -143,8 +155,9 @@ Page({
       try {
         const res = await api.get(`/api/pay/status/${this.data.openid}`)
         if (res.is_vip) {
-          this.setData({ isVip: true })
+          this.setData({ isVip: true, vipStatusReady: true, showVipModal: false })
           app.globalData.isVip = true
+          app.globalData.vipStatusReady = true
           this.trackEvent('vip_activated', {
             out_trade_no: res.latest_out_trade_no || '',
             source: 'settings',
@@ -197,10 +210,6 @@ Page({
         wx.showToast({ title: '授权失败', icon: 'none' })
       }
     })
-  },
-
-  onAdminTap() {
-    wx.navigateTo({ url: `/pages/admin/admin?openid=${this.data.openid}` })
   },
 
   trackEvent(eventName, properties = {}) {

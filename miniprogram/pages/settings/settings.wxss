@@ -20,6 +20,38 @@
   justify-content: space-between;
 }
 
+.profile-card-loading {
+  min-height: 116rpx;
+  box-sizing: border-box;
+}
+
+.profile-loading-copy {
+  flex: 1;
+}
+
+.profile-loading-line,
+.profile-loading-tag {
+  background: #f0f1f2;
+  border-radius: 8rpx;
+}
+
+.profile-loading-title {
+  width: 180rpx;
+  height: 34rpx;
+  margin-bottom: 12rpx;
+}
+
+.profile-loading-desc {
+  width: 72%;
+  height: 24rpx;
+}
+
+.profile-loading-tag {
+  width: 80rpx;
+  height: 48rpx;
+  margin-left: 24rpx;
+}
+
 .profile-title {
   display: block;
   font-size: 34rpx;

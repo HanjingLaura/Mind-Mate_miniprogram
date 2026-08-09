@@ -1,10 +1,16 @@
 <!-- 聊天气泡组件 -->
 <view class="bubble {{role === 'user' ? 'bubble-user' : 'bubble-ai'}}">
-  <view class="avatar" wx:if="{{role === 'assistant'}}">
-    <text class="avatar-emoji">🔥</text>
+  <view class="avatar" wx:if="{{role === 'assistant'}}" bindtap="onAvatarTap">
+    <image class="avatar-image" wx:if="{{avatarIsImage}}" src="{{avatar}}" mode="aspectFill" />
+    <view class="avatar-default" wx:else>
+      <view class="avatar-default-head"></view>
+      <view class="avatar-default-body"></view>
+    </view>
   </view>
-  <view class="bubble-content">
-    <text class="bubble-text" user-select="{{true}}">{{content}}</text>
+  <view class="bubble-stack">
+    <view class="bubble-content">
+      <text class="bubble-text" user-select="{{true}}">{{content}}</text>
+    </view>
     <text class="bubble-time" wx:if="{{time && !isTyping}}">{{time}}</text>
   </view>
 </view>

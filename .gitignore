@@ -34,6 +34,8 @@ backend/.env
 miniprogram/node_modules/
 miniprogram/miniprogram_npm/
 miniprogram/project.private.config.json
+miniprogram/utils/config.generated.js
+mindmate-backend-*.zip
 
 # 证书
 backend/certs/
