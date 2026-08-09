@@ -12,12 +12,15 @@ Page({
     openid: '',
     messages: [],
     inputText: '',
+    inputLineCount: 1,
     isStreaming: false,
     scrollTarget: '',
     showVipModal: false,
     showVipReasonModal: false,
     isVip: false,
     loadingMore: false,
+    coachAvatar: '',
+    coachAvatarIsImage: false,
     vipReasonOptions: [
       { label: '价格原因', value: 'price' },
       { label: '还没看出价值', value: 'unclear_value' },
@@ -31,8 +34,15 @@ Page({
   _pendingTaskChanges: [],
 
   onLoad() {
-    app.loginReady.then(() => {
-      const openid = app.globalData.openid || 'dev_default'
+    const storedAvatar = wx.getStorageSync('mindmate_coach_avatar')
+    const storedAvatarIsImage = wx.getStorageSync('mindmate_coach_avatar_is_image') === true
+    this.setData({
+      coachAvatar: storedAvatarIsImage ? storedAvatar : '',
+      coachAvatarIsImage: storedAvatarIsImage && !!storedAvatar,
+    })
+    app.loginReady.then((loginSucceeded) => {
+      if (!loginSucceeded || !app.globalData.openid) return
+      const openid = app.globalData.openid
       this.setData({ openid })
       this.loadAllMessages()
       this.loadProfile()
@@ -56,9 +66,16 @@ Page({
 
   async loadProfile() {
     try {
+      const paymentStatus = await api.get(`/api/pay/status/${this.data.openid}`)
       const profile = await api.get(`/api/user/profile/${this.data.openid}`)
-      this.setData({ isVip: profile.is_vip })
-      app.globalData.isVip = profile.is_vip
+      const isVip = paymentStatus.is_vip || profile.is_vip
+      this.setData({
+        isVip,
+        showVipModal: isVip ? false : this.data.showVipModal,
+        showVipReasonModal: isVip ? false : this.data.showVipReasonModal,
+      })
+      app.globalData.isVip = isVip
+      app.globalData.vipStatusReady = true
     } catch (e) {
       console.error('[Index] 加载用户信息失败', e)
     }
@@ -133,6 +150,13 @@ Page({
     this.setData({ inputText: e.detail.value })
   },
 
+  onInputLineChange(e) {
+    const lineCount = Math.max(1, Number(e.detail.lineCount) || 1)
+    if (lineCount !== this.data.inputLineCount) {
+      this.setData({ inputLineCount: lineCount })
+    }
+  },
+
   onSend() {
     const text = this.data.inputText.trim()
     if (!text || this.data.isStreaming) return
@@ -148,6 +172,7 @@ Page({
     this.setData({
       messages: [...this.data.messages, userMsg],
       inputText: '',
+      inputLineCount: 1,
       isStreaming: true,
     })
     this._streamBuffer = ''
@@ -264,6 +289,30 @@ Page({
     wx.navigateTo({ url: `/pages/settings/settings?openid=${this.data.openid}` })
   },
 
+  onAvatarTap() {
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      sizeType: ['compressed'],
+      success: (res) => {
+        const tempFilePath = res.tempFiles[0] && res.tempFiles[0].tempFilePath
+        if (!tempFilePath) return
+        wx.saveFile({
+          tempFilePath,
+          success: (saved) => this._saveCoachAvatar(saved.savedFilePath),
+          fail: () => this._saveCoachAvatar(tempFilePath),
+        })
+      },
+    })
+  },
+
+  _saveCoachAvatar(path) {
+    wx.setStorageSync('mindmate_coach_avatar', path)
+    wx.setStorageSync('mindmate_coach_avatar_is_image', true)
+    this.setData({ coachAvatar: path, coachAvatarIsImage: true })
+  },
+
   onAdminTrigger() {
     wx.navigateTo({ url: `/pages/admin/admin?openid=${this.data.openid}` })
   },
@@ -374,8 +423,9 @@ Page({
       try {
         const res = await api.get(`/api/pay/status/${this.data.openid}`)
         if (res.is_vip) {
-          this.setData({ isVip: true })
+          this.setData({ isVip: true, showVipModal: false, showVipReasonModal: false })
           app.globalData.isVip = true
+          app.globalData.vipStatusReady = true
           this.trackEvent('vip_activated', {
             out_trade_no: res.latest_out_trade_no || '',
           })

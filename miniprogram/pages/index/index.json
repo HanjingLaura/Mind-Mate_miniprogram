@@ -1,7 +1,9 @@
 {
   "navigationBarTitleText": "心智同行",
+  "navigationStyle": "default",
   "usingComponents": {
     "task-board": "/components/task-board/task-board",
-    "chat-bubble": "/components/chat-bubble/chat-bubble"
+    "chat-bubble": "/components/chat-bubble/chat-bubble",
+    "mp-icon": "weui-miniprogram/icon/icon"
   }
 }

@@ -12,5 +12,8 @@
     "backgroundTextStyle": "dark"
   },
   "style": "v2",
+  "useExtendedLib": {
+    "weui": "latest"
+  },
   "sitemapLocation": "sitemap.json"
 }

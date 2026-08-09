@@ -15,6 +15,48 @@
   </view>
 
   <view class="task-list" wx:if="{{expanded}}">
+    <!-- 跨天执行记忆：用户可见、可核验 -->
+    <view class="memory-panel" wx:if="{{hasMemoryData}}">
+      <view class="memory-summary" bindtap="onToggleMemory">
+        <view class="memory-summary-main">
+          <text class="memory-title">{{executionMemory.yesterday.total_count > 0 ? '昨日复盘' : '近7天复盘'}}</text>
+          <text class="memory-score" wx:if="{{executionMemory.yesterday.total_count > 0}}">
+            {{executionMemory.yesterday.completed_count}}/{{executionMemory.yesterday.total_count}}
+          </text>
+          <text class="memory-rate">近7天 {{executionMemory.recent.completion_rate}}%</text>
+          <text class="memory-streak" wx:if="{{executionMemory.recent.qualified_streak_days > 0}}">
+            连续达标 {{executionMemory.recent.qualified_streak_days}} 天
+          </text>
+        </view>
+        <text class="memory-expand">{{memoryExpanded ? '收起' : '详情'}}</text>
+      </view>
+
+      <view class="memory-detail" wx:if="{{memoryExpanded}}">
+        <block wx:if="{{executionMemory.yesterday.total_count > 0}}">
+          <view class="memory-group completed-group">
+            <text class="memory-group-label">完成</text>
+            <text class="memory-empty-text" wx:if="{{executionMemory.yesterday.completed_count == 0}}">无</text>
+            <view class="memory-task" wx:for="{{executionMemory.yesterday.completed_tasks}}" wx:key="id">
+              <text class="memory-task-dot completed-dot">✓</text>
+              <text class="memory-task-text">{{item.content}}</text>
+            </view>
+          </view>
+          <view class="memory-group pending-group">
+            <text class="memory-group-label">未完成</text>
+            <text class="memory-empty-text" wx:if="{{executionMemory.yesterday.uncompleted_count == 0}}">无</text>
+            <view class="memory-task" wx:for="{{executionMemory.yesterday.uncompleted_tasks}}" wx:key="id">
+              <text class="memory-task-dot pending-dot">•</text>
+              <text class="memory-task-text">{{item.content}}</text>
+            </view>
+          </view>
+        </block>
+        <view class="memory-no-yesterday" wx:else>昨天没有任务记录，只展示近 7 天已记录数据。</view>
+        <view class="memory-footnote">
+          有记录 {{executionMemory.recent.active_days}} 天 · 完成 {{executionMemory.recent.completed_count}}/{{executionMemory.recent.total_count}}
+        </view>
+      </view>
+    </view>
+
     <!-- 有任务 -->
     <block wx:if="{{totalCount > 0}}">
       <view
@@ -27,7 +69,7 @@
             <text wx:if="{{item.is_completed}}">✓</text>
           </view>
         </view>
-        <view class="task-content">
+        <view class="task-content" bindtap="onEditTask" data-id="{{item.id}}" data-index="{{index}}">
           <text class="task-text">{{item.content}}</text>
         </view>
         <view class="task-delete" catchtap="onDelete" data-id="{{item.id}}" data-index="{{index}}">
@@ -54,6 +96,24 @@
       <view class="add-btn {{newTask.trim() ? 'active' : ''}}" bindtap="onAddTask">
         <text class="add-btn-text">+</text>
       </view>
+    </view>
+  </view>
+</view>
+
+<view class="task-edit-overlay" wx:if="{{showEditDialog}}">
+  <view class="task-edit-sheet">
+    <text class="task-edit-title">编辑任务</text>
+    <textarea
+      class="task-edit-input"
+      value="{{editingTaskContent}}"
+      maxlength="500"
+      auto-height
+      focus
+      bindinput="onEditInput"
+    />
+    <view class="task-edit-actions">
+      <view class="task-edit-button secondary" bindtap="onCancelEdit">取消</view>
+      <view class="task-edit-button primary" bindtap="onConfirmEdit">保存</view>
     </view>
   </view>
 </view>

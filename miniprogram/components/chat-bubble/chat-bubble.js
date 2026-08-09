@@ -18,6 +18,19 @@ Component({
     isTyping: {
       type: Boolean,
       value: false
+    },
+    avatar: {
+      type: String,
+      value: ''
+    },
+    avatarIsImage: {
+      type: Boolean,
+      value: false
+    }
+  },
+  methods: {
+    onAvatarTap() {
+      this.triggerEvent('avatarTap')
     }
   }
 })

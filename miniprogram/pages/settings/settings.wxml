@@ -1,11 +1,18 @@
 <!-- 设置页 — 监督权益、通知授权与高级时间设置 -->
 <view class="settings-page">
-  <view class="profile-card">
+  <view class="profile-card" wx:if="{{vipStatusReady}}">
     <view class="profile-main">
       <text class="profile-title">心智同行</text>
       <text class="profile-desc">{{isVip ? 'VIP 已开启：主动监督会更频繁地把你叫回来' : '普通版：先体验晨间目标和晚间复盘'}}</text>
     </view>
     <text class="profile-tag {{isVip ? 'active' : ''}}">{{isVip ? 'VIP' : '普通'}}</text>
+  </view>
+  <view class="profile-card profile-card-loading" wx:else>
+    <view class="profile-loading-copy">
+      <view class="profile-loading-line profile-loading-title"></view>
+      <view class="profile-loading-line profile-loading-desc"></view>
+    </view>
+    <view class="profile-loading-tag"></view>
   </view>
 
   <view class="settings-section">
@@ -32,7 +39,7 @@
         <text class="benefit-title">不定时主动追问</text>
         <text class="benefit-desc">长时间没行动、午后摸鱼、任务拖黄时，通过微信通知敲你。</text>
       </view>
-      <text class="benefit-status vip">{{isVip ? '已开' : 'VIP'}}</text>
+      <text class="benefit-status vip" wx:if="{{vipStatusReady}}">{{isVip ? '已开' : 'VIP'}}</text>
     </view>
   </view>
 
@@ -47,7 +54,7 @@
     </view>
   </view>
 
-  <view class="settings-section" wx:if="{{!isVip}}">
+  <view class="settings-section" wx:if="{{vipStatusReady && !isVip}}">
     <view class="upgrade-card" bindtap="onUpgradeTap">
       <view class="upgrade-copy">
         <text class="upgrade-title">开通 VIP 体验包</text>
@@ -75,7 +82,7 @@
         <picker mode="time" value="{{afternoonTime}}" bindchange="onAfternoonChange">
           <view class="time-value-wrap">
             <text class="time-value">{{afternoonTime}}</text>
-            <text class="mini-vip" wx:if="{{!isVip}}">VIP</text>
+            <text class="mini-vip" wx:if="{{vipStatusReady && !isVip}}">VIP</text>
           </view>
         </picker>
       </view>
@@ -99,13 +106,10 @@
         <text class="vip-feat">长时间无进展追问</text>
         <text class="vip-feat">未完成任务次日翻旧账</text>
       </view>
-      <text class="vip-price">¥1.99 体验包</text>
+      <text class="vip-price">¥1.99 / 30天</text>
+      <text class="vip-desc">一次性购买，不自动续费</text>
       <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
       <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
     </view>
-  </view>
-
-  <view class="admin-entry" bindtap="onAdminTap">
-    <text class="admin-text">关于</text>
   </view>
 </view>

@@ -22,18 +22,33 @@ App({
       wx.login({
         success: (res) => {
           if (res.code) {
-            this._loginWithCode(res.code).then(resolve).catch(() => {
-              this._fallbackLogin()
-              resolve()
+            this._loginWithCode(res.code).then(() => resolve(true)).catch(() => {
+              if (this.globalData.env === 'cloud') {
+                this._showLoginError()
+                resolve(false)
+              } else {
+                this._fallbackLogin()
+                resolve(true)
+              }
             })
           } else {
-            this._fallbackLogin()
-            resolve()
+            if (this.globalData.env === 'cloud') {
+              this._showLoginError()
+              resolve(false)
+            } else {
+              this._fallbackLogin()
+              resolve(true)
+            }
           }
         },
         fail: () => {
-          this._fallbackLogin()
-          resolve()
+          if (this.globalData.env === 'cloud') {
+            this._showLoginError()
+            resolve(false)
+          } else {
+            this._fallbackLogin()
+            resolve(true)
+          }
         }
       })
     })
@@ -44,6 +59,7 @@ App({
     const data = await api.post('/api/user/login', { code })
     this.globalData.openid = data.openid
     this.globalData.isVip = data.is_vip || false
+    this.globalData.vipStatusReady = true
     this.globalData.isDevMode = false
     console.log('[App] 登录成功', data.openid)
   },
@@ -61,6 +77,16 @@ App({
     console.log('[App] 开发模式', openid)
   },
 
+  _showLoginError() {
+    this.globalData.openid = ''
+    this.globalData.loginError = true
+    wx.showModal({
+      title: '登录失败',
+      content: '暂时无法连接服务，请稍后重试。',
+      showCancel: false,
+    })
+  },
+
   _randomId() {
     return Math.random().toString(36).substring(2, 10) + Date.now().toString(36)
   },
@@ -68,7 +94,9 @@ App({
   globalData: {
     openid: '',
     isVip: false,
+    vipStatusReady: false,
     isDevMode: false,
+    loginError: false,
     env: 'local',
   }
 })

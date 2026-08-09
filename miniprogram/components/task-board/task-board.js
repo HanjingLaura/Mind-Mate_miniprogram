@@ -9,7 +9,10 @@ Component({
   properties: {
     openid: {
       type: String,
-      value: ''
+      value: '',
+      observer(openid) {
+        if (openid) this.loadTasks()
+      }
     }
   },
 
@@ -22,6 +25,13 @@ Component({
     tapCount: 0,
     tapTimer: null,
     newTask: '',
+    executionMemory: null,
+    hasMemoryData: false,
+    memoryExpanded: false,
+    showEditDialog: false,
+    editingTaskId: 0,
+    editingTaskIndex: -1,
+    editingTaskContent: '',
   },
 
   _highlightTimer: null,
@@ -43,8 +53,15 @@ Component({
     async loadTasks() {
       if (!this.properties.openid) return
       try {
-        const tasks = await api.get(`/api/tasks/today/${this.properties.openid}`)
-        this.setData({ tasks })
+        const [tasks, executionMemory] = await Promise.all([
+          api.get(`/api/tasks/today/${this.properties.openid}`),
+          api.get(`/api/tasks/memory/${this.properties.openid}`).catch(() => null),
+        ])
+        const hasMemoryData = !!(executionMemory && (
+          executionMemory.yesterday.total_count > 0 ||
+          executionMemory.recent.active_days > 0
+        ))
+        this.setData({ tasks, executionMemory, hasMemoryData })
         this._updateCounts(tasks)
       } catch (e) {
         console.error('[TaskBoard] 加载任务失败', e)
@@ -55,19 +72,68 @@ Component({
       this.setData({ expanded: !this.data.expanded })
     },
 
+    onToggleMemory() {
+      const nextExpanded = !this.data.memoryExpanded
+      this.setData({ memoryExpanded: nextExpanded })
+      this._trackEvent('execution_memory_toggle', {
+        expanded: nextExpanded,
+      })
+    },
+
     async onTaskTap(e) {
       const { id, index } = e.currentTarget.dataset
       const task = this.data.tasks[index]
-      if (task.is_completed) return
-
       try {
-        await api.post('/api/tasks/checkin', { task_id: id, openid: this.properties.openid })
-        this._trackEvent('task_checkin', { task_id: id })
-        this.setData({ [`tasks[${index}].is_completed`]: true })
+        const res = await api.post('/api/tasks/checkin', { task_id: id, openid: this.properties.openid })
+        this._trackEvent(res.is_completed ? 'task_checkin' : 'task_restore', { task_id: id })
+        this.setData({ [`tasks[${index}].is_completed`]: res.is_completed })
         this._updateCounts(this.data.tasks)
         wx.vibrateShort({ type: 'light' })
       } catch (e) {
         console.error('[TaskBoard] 打卡失败', e)
+      }
+    },
+
+    onEditTask(e) {
+      const { id, index } = e.currentTarget.dataset
+      const task = this.data.tasks[index]
+      if (!task) return
+      this.setData({
+        showEditDialog: true,
+        editingTaskId: id,
+        editingTaskIndex: index,
+        editingTaskContent: task.content,
+      })
+    },
+
+    onEditInput(e) {
+      this.setData({ editingTaskContent: e.detail.value })
+    },
+
+    onCancelEdit() {
+      this.setData({ showEditDialog: false, editingTaskIndex: -1 })
+    },
+
+    async onConfirmEdit() {
+      const content = this.data.editingTaskContent.trim()
+      const index = this.data.editingTaskIndex
+      if (!content || index < 0) return
+
+      try {
+        const task = await api.post('/api/tasks/edit', {
+          task_id: this.data.editingTaskId,
+          openid: this.properties.openid,
+          content,
+        })
+        this.setData({
+          [`tasks[${index}]`]: task,
+          showEditDialog: false,
+          editingTaskIndex: -1,
+        })
+        this._trackEvent('task_edit', { task_id: task.id, source: 'manual' })
+      } catch (e) {
+        console.error('[TaskBoard] 编辑失败', e)
+        wx.showToast({ title: '保存失败', icon: 'none' })
       }
     },
 

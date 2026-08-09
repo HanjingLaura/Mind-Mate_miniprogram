@@ -1,19 +1,5 @@
 <!-- 心智同行 聊天主页 -->
 <view class="page-container">
-  <!-- 导航栏 -->
-  <view class="nav-bar">
-    <view class="nav-title-wrap">
-      <text class="nav-title">{{isStreaming ? '对方正在输出中...' : '心智同行'}}</text>
-      <view class="nav-vip-badge" wx:if="{{isVip}}">VIP</view>
-      <view class="nav-vip-btn" wx:else bindtap="showVipPrompt">升级VIP</view>
-    </view>
-    <view class="nav-actions">
-      <view class="nav-btn" bindtap="onSettingsTap">
-        <text class="nav-icon">⚙</text>
-      </view>
-    </view>
-  </view>
-
   <!-- 聊天区域 -->
   <scroll-view
     class="chat-area"
@@ -35,8 +21,11 @@
           content="{{item.content}}"
           time="{{item.timeLabel}}"
           isTyping="{{item.isTyping}}"
+          avatar="{{coachAvatar}}"
+          avatarIsImage="{{coachAvatarIsImage}}"
+          bind:avatarTap="onAvatarTap"
         />
-        <view class="feedback-row" wx:if="{{item.role == 'assistant' && !item.feedbackSubmitted}}">
+        <view class="feedback-row" wx:if="{{false}}">
           <text
             class="feedback-chip"
             bindtap="onFeedbackTap"
@@ -99,7 +88,8 @@
           <text class="vip-feat-desc">晚上没做完，第二天继续翻旧账。</text>
         </view>
       </view>
-      <text class="vip-price">¥1.99 体验包</text>
+      <text class="vip-price">¥1.99 / 30天</text>
+      <text class="vip-desc">一次性购买，不自动续费</text>
       <view class="vip-actions">
         <button class="btn-primary" bindtap="onUpgradeVip">立即升级</button>
         <text class="vip-skip" bindtap="closeVipModal">下次再说</text>
@@ -122,19 +112,31 @@
   <!-- 输入区域 -->
   <view class="input-area">
     <view class="input-row">
-      <input
-        class="chat-input"
-        placeholder="说说你的目标..."
-        placeholder-class="input-placeholder"
-        value="{{inputText}}"
-        bindinput="onInput"
-        bindconfirm="onSend"
-        confirm-type="send"
-        disabled="{{isStreaming}}"
-      />
+      <view class="settings-btn" bindtap="onSettingsTap" aria-label="打开设置">
+        <mp-icon type="outline" icon="setting" color="#4c4c4c" size="24" />
+      </view>
+      <view class="chat-input-shell">
+        <text class="chat-placeholder" wx:if="{{!inputText}}">说说你的目标...</text>
+        <textarea
+          class="chat-input {{inputLineCount <= 1 ? 'single-line' : ''}}"
+          value="{{inputText}}"
+          bindinput="onInput"
+          bindlinechange="onInputLineChange"
+          bindconfirm="onSend"
+          auto-height="{{true}}"
+          maxlength="2000"
+          confirm-type="send"
+          show-confirm-bar="{{false}}"
+          disable-default-padding="{{true}}"
+          adjust-position="{{true}}"
+          cursor-spacing="0"
+          disabled="{{isStreaming}}"
+        />
+      </view>
       <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="onSend">
         <text class="send-icon">↑</text>
       </view>
     </view>
   </view>
+
 </view>
