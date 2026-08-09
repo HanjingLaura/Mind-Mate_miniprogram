@@ -7,6 +7,7 @@
 """
 
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -27,8 +28,14 @@ async def bypass_upgrade(req: AdminBypassRequest, db: Session = Depends(get_db))
     用于种子用户免费体验全天候监督功能。
     密钥从环境变量 ADMIN_SECRET_KEY 读取，绝不硬编码。
     """
-    # 验证密钥
-    if req.secret_key != settings.ADMIN_SECRET_KEY:
+    if not settings.ADMIN_BYPASS_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # 使用常量时间比较，且空密钥永远不能通过。
+    if not settings.ADMIN_SECRET_KEY or not secrets.compare_digest(
+        req.secret_key,
+        settings.ADMIN_SECRET_KEY,
+    ):
         logger.warning(f"管理员升级密钥错误，user_id={req.user_id}")
         raise HTTPException(status_code=403, detail="暗号错误，你不是内测人员吧？")
 

@@ -18,8 +18,10 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import User, Conversation, Message, DailyTask
 from schemas import ChatRequest, ConversationOut, AllMessagesOut
+from services.execution_memory import build_execution_memory, format_execution_memory_context
 from services.llm_service import stream_chat, extract_task_split, extract_task_add, extract_task_done, extract_task_edit, extract_task_delete
 from services.scheduler_service import get_effective_date
+from services.time_service import utc_naive_to_beijing
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -76,12 +78,12 @@ async def chat_send(req: ChatRequest, db: Session = Depends(get_db)):
 
         messages = [{"role": m.role, "content": m.content} for m in history_msgs]
 
-        # 构建今日任务上下文
+        # 构建今日任务与跨天执行记忆上下文
         today_tasks = db.query(DailyTask).filter(
             DailyTask.user_id == user.id,
             DailyTask.task_date == effective_date,
         ).all()
-        task_context = None
+        context_parts = []
         if today_tasks:
             completed = sum(1 for t in today_tasks if t.is_completed)
             total = len(today_tasks)
@@ -89,7 +91,11 @@ async def chat_send(req: ChatRequest, db: Session = Depends(get_db)):
             for t in today_tasks:
                 status = "✓" if t.is_completed else "○"
                 lines.append(f"#{t.id} {status} {t.content}")
-            task_context = "用户今日任务：\n" + "\n".join(lines) + "\n注意：已有任务就别重复拆，追加用TASK_ADD。用户说完成就带|||TASK_DONE:[\"关键词\"]|||标记，要改就带|||TASK_EDIT:{\"from\":\"原\",\"to\":\"新\"}|||标记，要删就带|||TASK_DELETE:[\"关键词\"]|||标记。"
+            context_parts.append("用户今日任务：\n" + "\n".join(lines) + "\n注意：已有任务就别重复拆，追加用 TASK_ADD。任务完成只能由用户在面板手动勾选，绝不能输出 TASK_DONE 或修改完成状态；要改任务才用 TASK_EDIT，要删才用 TASK_DELETE。")
+
+        execution_memory = build_execution_memory(db, user.id, effective_date)
+        context_parts.append(format_execution_memory_context(execution_memory))
+        task_context = "\n\n".join(context_parts)
 
     except Exception as e:
         logger.error(f"聊天准备阶段失败: {e}")
@@ -139,11 +145,9 @@ async def chat_send(req: ChatRequest, db: Session = Depends(get_db)):
                 if change:
                     task_changes.append(change)
 
-            # TASK_DONE — 标记完成
-            cleaned_text, done_keywords = extract_task_done(cleaned_text)
-            if done_keywords:
-                changes = _mark_tasks_done(db, user_id, effective_date, done_keywords)
-                task_changes.extend(changes)
+            # Do not let model language complete tasks. We still remove a
+            # legacy marker if a model emits one, but completion is manual.
+            cleaned_text, _ = extract_task_done(cleaned_text)
 
             # TASK_EDIT — 修改任务内容
             cleaned_text, edit_data = extract_task_edit(cleaned_text)
@@ -395,7 +399,7 @@ async def get_messages(conversation_id: int, db: Session = Depends(get_db)):
             "id": m.id,
             "role": m.role,
             "content": m.content,
-            "created_at": m.created_at.isoformat(),
+            "created_at": utc_naive_to_beijing(m.created_at).isoformat(),
         }
         for m in messages
     ]
@@ -437,7 +441,7 @@ async def get_all_messages(
             "id": m.id,
             "role": m.role,
             "content": m.content,
-            "created_at": m.created_at.isoformat(),
+            "created_at": utc_naive_to_beijing(m.created_at).isoformat(),
             "conversation_date": conv_date.isoformat(),
         }
         for m, conv_date in rows
@@ -467,10 +471,9 @@ async def _chat_send_sync(messages, task_context, db, user_id, conv_id, effectiv
             if change:
                 task_changes.append(change)
 
-        cleaned_text, done_keywords = extract_task_done(cleaned_text)
-        if done_keywords:
-            changes = _mark_tasks_done(db, user_id, effective_date, done_keywords)
-            task_changes.extend(changes)
+        # Completion is intentionally manual. Strip any stale TASK_DONE marker
+        # without changing a DailyTask row.
+        cleaned_text, _ = extract_task_done(cleaned_text)
 
         cleaned_text, edit_data = extract_task_edit(cleaned_text)
         if edit_data:

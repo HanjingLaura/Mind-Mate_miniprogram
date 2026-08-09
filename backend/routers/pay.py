@@ -8,6 +8,7 @@
 
 import json
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -21,6 +22,24 @@ from services.user_state import normalize_vip_status
 
 router = APIRouter(prefix="/api/pay", tags=["pay"])
 logger = logging.getLogger(__name__)
+
+
+def _validate_paid_order(data: dict, order: PayOrder) -> str:
+    """校验回调确实属于本应用、本商户和本地订单。返回空串表示通过。"""
+    amount = data.get("amount") or {}
+    payer = data.get("payer") or {}
+    checks = (
+        (data.get("appid") == settings.WECHAT_APPID, "appid 不匹配"),
+        (data.get("mchid") == settings.WECHAT_MCHID, "mchid 不匹配"),
+        (data.get("out_trade_no") == order.out_trade_no, "商户订单号不匹配"),
+        (payer.get("openid") == order.openid, "付款人 openid 不匹配"),
+        (amount.get("total") == order.amount_cents, "支付金额不匹配"),
+        (amount.get("currency", "CNY") == "CNY", "支付币种不匹配"),
+    )
+    for valid, message in checks:
+        if not valid:
+            return message
+    return ""
 
 
 @router.post("/create_order", response_model=PayOrderOut)
@@ -89,8 +108,6 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
         # 提取关键信息
         out_trade_no = data.get("out_trade_no", "")
         trade_state = data.get("trade_state", "")
-        openid = data.get("payer", {}).get("openid", "")
-
         if trade_state != "SUCCESS":
             logger.info(f"订单 {out_trade_no} 状态非成功: {trade_state}")
             order = db.query(PayOrder).filter(PayOrder.out_trade_no == out_trade_no).first()
@@ -103,6 +120,11 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
         if not order:
             logger.error(f"回调订单不存在: {out_trade_no}")
             return {"code": "FAIL", "message": "订单不存在"}
+
+        validation_error = _validate_paid_order(data, order)
+        if validation_error:
+            logger.error(f"订单 {out_trade_no} 回调校验失败: {validation_error}")
+            return {"code": "FAIL", "message": "订单信息校验失败"}
 
         # 升级 VIP
         user = db.query(User).filter(User.id == order.user_id).first()
@@ -156,6 +178,41 @@ async def get_pay_status(openid: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="用户不存在")
     user = normalize_vip_status(db, user)
 
+    latest_order = db.query(PayOrder).filter(
+        PayOrder.user_id == user.id
+    ).order_by(PayOrder.created_at.desc()).first()
+
+    # The client calls this endpoint after wx.requestPayment succeeds. Reconcile
+    # a still-pending order against WeChat so a delayed callback cannot leave a
+    # real paid user without VIP access.
+    if latest_order and latest_order.status == "created":
+        try:
+            transaction = await wechat_pay.query_order(latest_order.out_trade_no)
+            if transaction.get("trade_state") == "SUCCESS":
+                validation_error = _validate_paid_order(transaction, latest_order)
+                if validation_error:
+                    logger.error(
+                        "Paid order %s query validation failed: %s",
+                        latest_order.out_trade_no,
+                        validation_error,
+                    )
+                else:
+                    latest_order.status = "paid"
+                    latest_order.paid_at = datetime.utcnow()
+                    user.is_vip = True
+                    user.vip_expire_at = datetime.utcnow() + timedelta(days=30)
+                    db.commit()
+                    logger.info(
+                        "User %s VIP activated by order query",
+                        user.openid,
+                    )
+        except Exception as e:
+            # A temporary query failure must not make the status endpoint fail.
+            # The payment callback remains available as another confirmation path.
+            db.rollback()
+            logger.warning("Pending order reconciliation failed: %s", e)
+
+    user = normalize_vip_status(db, user)
     latest_order = db.query(PayOrder).filter(
         PayOrder.user_id == user.id
     ).order_by(PayOrder.created_at.desc()).first()
