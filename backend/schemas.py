@@ -107,6 +107,13 @@ class TaskCreateRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=500)
 
 
+class TaskEditRequest(BaseModel):
+    """Manual task editing from the task board."""
+    task_id: int = Field(..., gt=0)
+    openid: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1, max_length=500)
+
+
 class TaskDeleteRequest(BaseModel):
     """删除任务"""
     task_id: int = Field(..., gt=0)

@@ -14,8 +14,10 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import User, DailyTask
-from schemas import DailyTaskOut, TaskCheckInRequest, TaskCreateRequest, TaskDeleteRequest
+from schemas import DailyTaskOut, TaskCheckInRequest, TaskCreateRequest, TaskEditRequest, TaskDeleteRequest
+from services.execution_memory import build_execution_memory, empty_execution_memory
 from services.scheduler_service import get_effective_date
+from services.time_service import utc_now_naive
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 logger = logging.getLogger(__name__)
@@ -53,12 +55,17 @@ async def checkin_task(req: TaskCheckInRequest, db: Session = Depends(get_db)):
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
 
-        task.is_completed = True
-        from datetime import datetime
-        task.completed_at = datetime.utcnow()
+        # Completion is a user-controlled toggle. The chat model must never
+        # silently change this state, and a completed task can be restored.
+        task.is_completed = not task.is_completed
+        task.completed_at = utc_now_naive() if task.is_completed else None
         db.commit()
 
-        return {"success": True, "message": "打卡成功！又一个任务拿下！"}
+        return {
+            "success": True,
+            "is_completed": task.is_completed,
+            "message": "任务已完成" if task.is_completed else "已恢复为未完成",
+        }
 
     except HTTPException:
         raise
@@ -94,6 +101,16 @@ async def get_yesterday_uncompleted(openid: str, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/memory/{openid}")
+async def get_execution_memory(openid: str, db: Session = Depends(get_db)):
+    """获取昨日复盘与近 7 天执行记忆。"""
+    effective_date = get_effective_date()
+    user = db.query(User).filter(User.openid == openid).first()
+    if not user:
+        return empty_execution_memory(effective_date)
+    return build_execution_memory(db, user.id, effective_date)
+
+
 @router.post("/add")
 async def add_task(req: TaskCreateRequest, db: Session = Depends(get_db)):
     """手动添加任务"""
@@ -124,6 +141,26 @@ async def add_task(req: TaskCreateRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(task)
 
+    return DailyTaskOut.model_validate(task)
+
+
+@router.post("/edit", response_model=DailyTaskOut)
+async def edit_task(req: TaskEditRequest, db: Session = Depends(get_db)):
+    """Edit a task without changing its completion state."""
+    user = db.query(User).filter(User.openid == req.openid).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    task = db.query(DailyTask).filter(
+        DailyTask.id == req.task_id,
+        DailyTask.user_id == user.id,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    task.content = req.content.strip()
+    db.commit()
+    db.refresh(task)
     return DailyTaskOut.model_validate(task)
 
 

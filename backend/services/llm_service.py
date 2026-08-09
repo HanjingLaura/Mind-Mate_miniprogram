@@ -41,14 +41,14 @@ SYSTEM_PROMPT = """你是他朋友，嘴毒但心软，专门帮大学生对抗�
 格式（只能放在回复最末尾，严格按此格式，不要多任何字符）：
 - 拆解新目标：|||TASK_SPLIT:{"goal":"目标","tasks":["任务1","任务2"]}|||
 - 追加单任务：|||TASK_ADD:{"content":"任务内容"}|||
-- 完成任务：|||TASK_DONE:["关键词"]|||
 - 修改任务：|||TASK_EDIT:{"from":"原关键词","to":"新内容"}|||
 - 删除任务：|||TASK_DELETE:["关键词"]|||
 
 规则：
 - 用户首次定目标 → 用TASK_SPLIT拆成3~5个子任务
 - 用户要追加任务（已有目标时）→ 用TASK_ADD
-- 用户说做完了某个任务 → 用TASK_DONE，关键词要能唯一匹配那个任务
+- 用户说“都搞定了”、“差不多了”等模糊话时，只能回应和追问，不能改变任何任务的完成状态。
+- 任务完成只由用户在任务面板手动勾选；不要输出 TASK_DONE 标记。
 - 用户要改任务内容 → 用TASK_EDIT，from写原任务关键词，to写新内容
 - 用户要删任务 → 用TASK_DELETE
 
@@ -57,7 +57,7 @@ SYSTEM_PROMPT = """你是他朋友，嘴毒但心软，专门帮大学生对抗�
 你：行，数学是吧。给你拆三个，做完再说。|||TASK_SPLIT:{"goal":"复习数学","tasks":["看课本第三章","做课后习题10道","整理错题本"]}|||
 
 用户：习题做完了
-你：可以，下一个。|||TASK_DONE:["习题"]|||
+你：行，自己点一下任务前的勾，再继续下一个。
 
 用户：再加一个整理笔记
 你：加上去了，别想逃。|||TASK_ADD:{"content":"整理笔记"}|||
@@ -247,6 +247,7 @@ async def generate_supervision(
     goal: str,
     completed_tasks: list[str],
     uncompleted_tasks: list[str],
+    memory_context: str = "",
 ) -> str:
     """生成监督催促文本"""
     template = SUPERVISION_PROMPTS.get(supervision_type, SUPERVISION_PROMPTS["morning"])
@@ -258,6 +259,8 @@ async def generate_supervision(
         today_tasks="、".join(uncompleted_tasks) if uncompleted_tasks else "新的一天",
         pending_tasks="、".join(uncompleted_tasks) if uncompleted_tasks else "无",
     )
+    if memory_context:
+        prompt += f"\n\n执行记忆（数据库事实）：{memory_context}\n只按事实追责；没有记录不能说成没有行动。"
 
     client = _get_client()
     try:

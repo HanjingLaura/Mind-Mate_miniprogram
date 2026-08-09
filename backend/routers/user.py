@@ -4,7 +4,7 @@ import hashlib
 import logging
 from datetime import datetime, time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -31,12 +31,19 @@ async def get_profile(openid: str, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(req: LoginRequest, db: Session = Depends(get_db)):
+async def login(
+    req: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     """登录/注册 — 支持 code 换 openid（生产）或直接传 openid（开发）"""
     try:
-        resolved_openid = req.openid
+        # wx.cloud.callContainer injects this trusted identity header when the
+        # request comes from the bound Mini Program. Prefer it over exchanging
+        # a temporary wx.login code through the public API.
+        resolved_openid = request.headers.get("x-wx-openid", "").strip() or req.openid
 
-        if req.code and settings.WECHAT_APPID and settings.WECHAT_SECRET:
+        if not resolved_openid and req.code and settings.WECHAT_APPID and settings.WECHAT_SECRET:
             import httpx
             url = "https://api.weixin.qq.com/sns/jscode2session"
             params = {
@@ -52,8 +59,13 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)):
                     resolved_openid = data["openid"]
                 else:
                     logger.warning(f"code2session 失败: {data}")
+                    raise HTTPException(status_code=502, detail="微信登录失败，请稍后重试")
 
-        if not resolved_openid and req.code:
+        if (
+            not resolved_openid
+            and req.code
+            and not (settings.WECHAT_APPID and settings.WECHAT_SECRET)
+        ):
             resolved_openid = "dev_" + hashlib.md5(req.code.encode()).hexdigest()[:12]
 
         if not resolved_openid:

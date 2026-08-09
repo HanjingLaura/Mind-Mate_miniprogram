@@ -13,8 +13,10 @@ from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 
 from models import User, DailyTask, Conversation, Message, SubscribeAuth, SupervisionLog, AnalyticsEvent
+from services.execution_memory import build_execution_memory, format_supervision_memory
 from services.llm_service import generate_supervision
 from services.user_state import normalize_vip_status
+from services.time_service import beijing_now, utc_naive_to_beijing
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ def get_effective_date(now: datetime | None = None) -> date:
     are still working on "today's" tasks until 4 AM.
     """
     if now is None:
-        now = datetime.now()
+        now = beijing_now()
     if now.hour < DAY_RESET_HOUR:
         return (now - timedelta(days=1)).date()
     return now.date()
@@ -88,7 +90,7 @@ def _stable_afternoon_minute(user_id: int, task_date: date) -> int:
 def get_due_supervision_types(db: Session, user: User, now: datetime | None = None) -> list[str]:
     """根据免费/VIP权益和任务状态，返回本轮应触发的监督类型。"""
     if now is None:
-        now = datetime.now()
+        now = beijing_now()
 
     user = normalize_vip_status(db, user)
     task_date = get_effective_date(now)
@@ -120,7 +122,7 @@ def get_due_supervision_types(db: Session, user: User, now: datetime | None = No
                 due.append("afternoon_nudge")
 
         # VIP：长时间无打卡追问。第一版保持每日最多一次，防止打扰过重。
-        latest = _latest_task_activity(db, user.id, task_date)
+        latest = utc_naive_to_beijing(_latest_task_activity(db, user.id, task_date))
         if latest and 9 <= now.hour < 22 and now - latest >= timedelta(hours=2):
             if not _has_supervision_log(db, user.id, task_date, "behavior_nudge"):
                 due.append("behavior_nudge")
@@ -131,7 +133,7 @@ def get_due_supervision_types(db: Session, user: User, now: datetime | None = No
 def should_supervise(user: User, supervision_type: str, now: datetime | None = None) -> bool:
     """兼容旧调用：新逻辑请使用 get_due_supervision_types。"""
     if now is None:
-        now = datetime.now()
+        now = beijing_now()
     current = now.hour * 60 + now.minute
     if supervision_type == "morning":
         return 6 <= now.hour < 12 and current >= _minutes(user.morning_time)
@@ -225,7 +227,7 @@ def finalize_previous_day_tasks(db: Session, now: datetime | None = None) -> int
         受影响的任务数
     """
     if now is None:
-        now = datetime.now()
+        now = beijing_now()
 
     yesterday = get_effective_date(now - timedelta(days=1)) if now.hour >= DAY_RESET_HOUR else get_effective_date(now)
 
@@ -268,7 +270,7 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
     from config import settings
     from services.wechat_service import wechat_service
 
-    now = datetime.now()
+    now = beijing_now()
     effective_date = get_effective_date(now)
     results = []
 
@@ -276,6 +278,10 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
 
     for user in users:
         due_types = get_due_supervision_types(db, user, now)
+        if not due_types:
+            continue
+        execution_memory = build_execution_memory(db, user.id, effective_date)
+        memory_context = format_supervision_memory(execution_memory)
         for supervision_type in due_types:
 
             summary = get_user_task_summary(db, user.id, effective_date)
@@ -284,6 +290,8 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                 yesterday = get_effective_date(now - timedelta(days=1))
                 yesterday_summary = get_user_task_summary(db, user.id, yesterday)
                 summary["uncompleted_tasks"].extend(yesterday_summary["uncompleted_tasks"])
+                if not summary["goal"]:
+                    summary["goal"] = yesterday_summary["goal"]
 
             try:
                 message = await generate_supervision(
@@ -291,6 +299,7 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     goal=summary["goal"],
                     completed_tasks=summary["completed_tasks"],
                     uncompleted_tasks=summary["uncompleted_tasks"],
+                    memory_context=memory_context,
                 )
 
                 # 存入对话记录
@@ -307,8 +316,10 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                             openid=user.openid,
                             template_id=template_id,
                             data={
-                                "thing1": {"value": message[:20]},
-                                "time2": {"value": now.strftime("%H:%M")},
+                                # Template 37312: task name, deadline, reminder.
+                                "thing1": {"value": (summary["goal"] or "学习任务")[:20]},
+                                "time3": {"value": now.strftime("%Y-%m-%d %H:%M")},
+                                "thing4": {"value": message[:20]},
                             },
                         )
                         if sent:
