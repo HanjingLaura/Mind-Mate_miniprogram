@@ -124,14 +124,31 @@ def begin_agent_run(
         if datetime.utcnow() - started_at < timedelta(seconds=settings.AGENT_RUN_LEASE_SECONDS):
             return existing, False
     if existing:
-        existing.status = "running"
-        existing.error_message = ""
-        existing.started_at = datetime.utcnow()
-        existing.lease_token = secrets.token_urlsafe(24)
-        existing.finished_at = None
-        existing.input_snapshot = json.dumps(input_snapshot, ensure_ascii=False)
-        db.commit()
-        return existing, True
+        old_status = existing.status
+        old_started_at = existing.started_at
+        old_lease_token = existing.lease_token
+        now = datetime.utcnow()
+        updated = db.query(AgentRun).filter(
+            AgentRun.id == existing.id,
+            AgentRun.status == old_status,
+            AgentRun.started_at == old_started_at,
+            AgentRun.lease_token == old_lease_token,
+        ).update({
+            "status": "running",
+            "error_message": "",
+            "started_at": now,
+            "lease_token": secrets.token_urlsafe(24),
+            "finished_at": None,
+            "input_snapshot": json.dumps(input_snapshot, ensure_ascii=False),
+        }, synchronize_session=False)
+        if updated == 1:
+            db.commit()
+            db.refresh(existing)
+            return existing, True
+        db.rollback()
+        current = db.query(AgentRun).filter(AgentRun.id == existing.id).first()
+        if current:
+            return current, False
 
     run = AgentRun(
         user_id=user_id,

@@ -59,8 +59,10 @@ def ensure_runtime_schema():
 
 def ensure_production_schema():
     """Fail closed when a persistent database has not run versioned migrations."""
-    if str(engine.url).startswith("sqlite") or settings.APP_ENV != "production":
+    if settings.APP_ENV != "production":
         return
+    if str(engine.url).startswith("sqlite"):
+        raise RuntimeError("生产环境禁止使用 SQLite，请配置持久化 MySQL DATABASE_URL")
     if not inspect(engine).has_table("schema_migrations"):
         raise RuntimeError("生产数据库未初始化 schema_migrations，请先运行 python -m migrations.runner")
     with engine.connect() as conn:
@@ -78,9 +80,9 @@ async def lifespan(app: FastAPI):
     """应用生命周期 — 启动时建表，关闭时清理"""
     if settings.APP_ENV == "production" and not settings.APP_SECRET:
         raise RuntimeError("生产环境必须配置 APP_SECRET")
+    ensure_production_schema()
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
-    ensure_production_schema()
     logger.info("数据库表已初始化")
     if settings.EMBEDDED_SCHEDULER_ENABLED:
         start_scheduler()

@@ -228,15 +228,20 @@ def _consume_subscribe_auth(db: Session, user_id: int, template_id: str, scene: 
     ).order_by(SubscribeAuth.auth_time.asc()).with_for_update().first()
 
 
-def _claim_subscribe_auth(db: Session, auth: SubscribeAuth) -> None:
+def _claim_subscribe_auth(db: Session, auth: SubscribeAuth) -> bool:
     """Reserve one one-time grant before the external WeChat call.
 
     The WeChat send API has no idempotency key.  Reserving first avoids using
     the same grant repeatedly after a timeout or a permanent WeChat error.
     """
-    auth.used = True
-    auth.used_at = utc_now_naive()
-    db.commit()
+    updated = db.query(SubscribeAuth).filter(
+        SubscribeAuth.id == auth.id,
+        SubscribeAuth.used.is_(False),
+    ).update({
+        "used": True,
+        "used_at": utc_now_naive(),
+    }, synchronize_session=False)
+    return updated == 1
 
 
 def _create_supervision_log(
@@ -370,8 +375,10 @@ async def _deliver_pending_wechat_notice(
         return None
     summary = get_user_task_summary(db, user.id, effective_date)
     pending_log.channel = "wechat_pending"
+    if not _claim_subscribe_auth(db, auth):
+        db.rollback()
+        return None
     db.commit()
-    _claim_subscribe_auth(db, auth)
     sent = await wechat_service.send_subscribe_message(
         openid=user.openid,
         template_id=template_id,
@@ -444,8 +451,10 @@ async def _retry_failed_scheduled_reminders(db: Session, now: datetime) -> list[
             continue
         reminder.channel = "wechat_pending"
         reminder.sent_at = utc_now_naive()
+        if not _claim_subscribe_auth(db, auth):
+            db.rollback()
+            continue
         db.commit()
-        _claim_subscribe_auth(db, auth)
         try:
             sent = await wechat_service.send_subscribe_message(
                 openid=user.openid,
@@ -491,7 +500,11 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
     processing = db.query(ScheduledReminder).filter(
         ScheduledReminder.message_id.isnot(None),
         or_(
-            ScheduledReminder.status == "processing",
+            and_(
+                ScheduledReminder.status == "processing",
+                ScheduledReminder.sent_at.isnot(None),
+                ScheduledReminder.sent_at < pending_cutoff,
+            ),
             and_(
                 ScheduledReminder.status == "sent",
                 ScheduledReminder.channel == "wechat_pending",
@@ -559,6 +572,7 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
             reminder.status = "processing"
             reminder.channel = "in_app"
             reminder.message_id = msg.id
+            reminder.sent_at = utc_now_naive()
             db.commit()
 
             channel = "in_app"
@@ -570,10 +584,9 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
                     template_id,
                     "scheduled_reminder",
                 )
-                if auth:
+                if auth and _claim_subscribe_auth(db, auth):
                     reminder.channel = "wechat_pending"
                     db.commit()
-                    _claim_subscribe_auth(db, auth)
                     try:
                         sent = await wechat_service.send_subscribe_message(
                             openid=user.openid,
@@ -597,6 +610,8 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
                             "reminder_id": reminder.id,
                             "scene": "scheduled_reminder",
                         })
+                elif auth:
+                    db.rollback()
                 else:
                     _record_event(db, user, "wechat_notice_no_auth", {
                         "supervision_type": "scheduled_reminder",
@@ -765,11 +780,10 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                 if template_id:
                     scene = _scene_for_type(supervision_type)
                     auth = _consume_subscribe_auth(db, user.id, template_id, scene)
-                    if auth:
+                    if auth and _claim_subscribe_auth(db, auth):
                         supervision_log.channel = "wechat_pending"
                         supervision_log.sent_at = utc_now_naive()
                         db.commit()
-                        _claim_subscribe_auth(db, auth)
                         sent = await wechat_service.send_subscribe_message(
                             openid=user.openid,
                             template_id=template_id,
@@ -803,6 +817,8 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                                 "supervision_type": supervision_type,
                                 "scene": scene,
                             })
+                    elif auth:
+                        db.rollback()
                     else:
                         _record_event(db, user, "wechat_notice_no_auth", {
                             "supervision_type": supervision_type,

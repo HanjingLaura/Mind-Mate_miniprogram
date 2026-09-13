@@ -11,7 +11,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import secrets
+import time
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
@@ -30,8 +32,14 @@ def _signing_key() -> bytes:
 
 
 def issue_app_token(openid: str) -> str:
-    """Issue a compact HMAC session token bound to an openid."""
-    payload = base64.urlsafe_b64encode(openid.encode("utf-8")).decode("ascii").rstrip("=")
+    """Issue a time-limited HMAC session token bound to an openid."""
+    now = int(time.time())
+    payload = base64.urlsafe_b64encode(json.dumps({
+        "v": 1,
+        "openid": openid,
+        "iat": now,
+        "exp": now + settings.APP_TOKEN_TTL_SECONDS,
+    }, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii").rstrip("=")
     signature = hmac.new(_signing_key(), payload.encode("ascii"), hashlib.sha256).hexdigest()[:32]
     return f"{payload}.{signature}"
 
@@ -46,7 +54,11 @@ def parse_app_token(token: str) -> str | None:
         return None
     padding = "=" * (-len(payload) % 4)
     try:
-        return base64.urlsafe_b64decode(payload + padding).decode("utf-8")
+        data = json.loads(base64.urlsafe_b64decode(payload + padding).decode("utf-8"))
+        if not isinstance(data, dict) or int(data.get("exp", 0)) <= int(time.time()):
+            return None
+        openid = str(data.get("openid", "")).strip()
+        return openid or None
     except Exception:
         return None
 

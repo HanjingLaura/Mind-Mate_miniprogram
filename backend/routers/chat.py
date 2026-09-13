@@ -439,7 +439,8 @@ async def chat_send(
         # 加载对话历史
         history_msgs = db.query(Message).filter(
             Message.conversation_id == conv.id
-        ).order_by(Message.created_at).all()
+        ).order_by(Message.created_at.desc(), Message.id.desc()).limit(settings.CHAT_HISTORY_MESSAGES).all()
+        history_msgs.reverse()
         previous_assistant_text = next((
             decode_message_content(message.content)["text"]
             for message in reversed(history_msgs[:-1])
@@ -464,6 +465,16 @@ async def chat_send(
             if m.role == "assistant" and not content:
                 continue
             messages.append({"role": m.role, "content": content})
+
+        def _context_size(item: dict) -> int:
+            content = item.get("content", "")
+            if isinstance(content, list):
+                return sum(len(str(part.get("text", ""))) for part in content if isinstance(part, dict))
+            return len(str(content))
+
+        context_size = sum(_context_size(item) for item in messages)
+        while len(messages) > 1 and context_size > settings.CHAT_HISTORY_CHAR_BUDGET:
+            context_size -= _context_size(messages.pop(0))
 
         # 构建今日任务与跨天执行记忆上下文
         db.expire_all()

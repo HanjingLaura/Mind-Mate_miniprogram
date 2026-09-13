@@ -60,6 +60,8 @@ class Settings:
     AGENT_RUN_LEASE_SECONDS: int = _env_int("AGENT_RUN_LEASE_SECONDS", 180, 30)
     AGENT_PROVIDER_COOLDOWN_SECONDS: int = _env_int("AGENT_PROVIDER_COOLDOWN_SECONDS", 30, 0)
     MODEL_REQUEST_TIMEOUT_SECONDS: int = _env_int("MODEL_REQUEST_TIMEOUT_SECONDS", 20, 5)
+    CHAT_HISTORY_MESSAGES: int = _env_int("CHAT_HISTORY_MESSAGES", 60, 12)
+    CHAT_HISTORY_CHAR_BUDGET: int = _env_int("CHAT_HISTORY_CHAR_BUDGET", 24000, 4000)
 
     # 管理员内测
     ADMIN_SECRET_KEY: str = os.getenv("ADMIN_SECRET_KEY", "")
@@ -95,6 +97,7 @@ class Settings:
     # Never ship a deterministic signing secret. Production must provide one;
     # local development falls back to a process-local ephemeral key.
     APP_SECRET: str = os.getenv("APP_SECRET", "").strip()
+    APP_TOKEN_TTL_SECONDS: int = _env_int("APP_TOKEN_TTL_SECONDS", 2592000, 300)
 
     # 微信支付 V3
     WECHAT_MCHID: str = os.getenv("WECHAT_MCHID", "")
