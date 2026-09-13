@@ -10,15 +10,41 @@ import json
 import logging
 from datetime import datetime, date, timedelta
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from models import User, DailyTask, Conversation, Message, SubscribeAuth, SupervisionLog, AnalyticsEvent
+from config import settings
+from models import (
+    User,
+    DailyTask,
+    Conversation,
+    Message,
+    SubscribeAuth,
+    ScheduledReminder,
+    SupervisionLog,
+    AnalyticsEvent,
+)
 from services.execution_memory import build_execution_memory, format_supervision_memory
 from services.llm_service import generate_supervision
+from services.agent_orchestrator import advance_agent_stage, begin_agent_run, finish_agent_run, recover_stale_agent_runs, verify_agent_run
+from services.message_content import strip_task_protocol
 from services.user_state import normalize_vip_status
-from services.time_service import beijing_now, utc_naive_to_beijing
+from services.time_service import (
+    beijing_now,
+    beijing_to_utc_naive,
+    utc_now_naive,
+    utc_naive_to_beijing,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _wechat_channel(result: bool | None) -> str:
+    if result is True:
+        return "wechat"
+    if result is None:
+        return "wechat_unknown"
+    return "wechat_failed"
 
 DAY_RESET_HOUR = 4  # 跨天结算边界：凌晨 4:00
 
@@ -67,6 +93,21 @@ def _has_uncompleted_tasks(db: Session, user_id: int, task_date: date) -> bool:
     ).first() is not None
 
 
+def _daily_intervention_count(db: Session, user_id: int, task_date: date) -> int:
+    """Count proactive supervision only; user-created reminders do not consume this budget."""
+    return db.query(SupervisionLog).filter(
+        SupervisionLog.user_id == user_id,
+        SupervisionLog.task_date == task_date,
+        SupervisionLog.supervision_type.in_((
+            "morning_goal",
+            "unfinished_followup",
+            "afternoon_nudge",
+            "behavior_nudge",
+            "evening_review",
+        )),
+    ).count()
+
+
 def _latest_task_activity(db: Session, user_id: int, task_date: date) -> datetime | None:
     tasks = db.query(DailyTask).filter(
         DailyTask.user_id == user_id,
@@ -94,6 +135,10 @@ def get_due_supervision_types(db: Session, user: User, now: datetime | None = No
 
     user = normalize_vip_status(db, user)
     task_date = get_effective_date(now)
+    max_interventions = settings.AGENT_MAX_DAILY_INTERVENTIONS
+    intervention_count = _daily_intervention_count(db, user.id, task_date)
+    if max_interventions <= 0 or intervention_count >= max_interventions:
+        return []
     now_minutes = now.hour * 60 + now.minute
     due: list[str] = []
 
@@ -112,7 +157,7 @@ def get_due_supervision_types(db: Session, user: User, now: datetime | None = No
             due.append("evening_review")
 
     if not user.is_vip:
-        return due
+        return due[: max_interventions - intervention_count]
 
     # VIP：午后稳定随机狙击，只在还有未完成任务时触发。
     if _has_uncompleted_tasks(db, user.id, task_date):
@@ -123,11 +168,11 @@ def get_due_supervision_types(db: Session, user: User, now: datetime | None = No
 
         # VIP：长时间无打卡追问。第一版保持每日最多一次，防止打扰过重。
         latest = utc_naive_to_beijing(_latest_task_activity(db, user.id, task_date))
-        if latest and 9 <= now.hour < 22 and now - latest >= timedelta(hours=2):
+        if latest and 9 <= now.hour < 22 and now - latest >= timedelta(minutes=max(15, settings.AGENT_IDLE_NUDGE_MINUTES)):
             if not _has_supervision_log(db, user.id, task_date, "behavior_nudge"):
                 due.append("behavior_nudge")
 
-    return due
+    return due[: max_interventions - intervention_count]
 
 
 def should_supervise(user: User, supervision_type: str, now: datetime | None = None) -> bool:
@@ -153,6 +198,8 @@ def _to_prompt_type(supervision_type: str) -> str:
 
 
 def _scene_for_type(supervision_type: str) -> str:
+    if supervision_type == "scheduled_reminder":
+        return "scheduled_reminder"
     if supervision_type == "morning_goal":
         return "morning_goal"
     if supervision_type == "evening_review":
@@ -170,7 +217,7 @@ def _consume_subscribe_auth(db: Session, user_id: int, template_id: str, scene: 
         SubscribeAuth.template_id == template_id,
         SubscribeAuth.used == False,
         SubscribeAuth.scene == scene,
-    ).order_by(SubscribeAuth.auth_time.asc()).first()
+    ).order_by(SubscribeAuth.auth_time.asc()).with_for_update().first()
     if auth:
         return auth
 
@@ -178,7 +225,18 @@ def _consume_subscribe_auth(db: Session, user_id: int, template_id: str, scene: 
         SubscribeAuth.user_id == user_id,
         SubscribeAuth.template_id == template_id,
         SubscribeAuth.used == False,
-    ).order_by(SubscribeAuth.auth_time.asc()).first()
+    ).order_by(SubscribeAuth.auth_time.asc()).with_for_update().first()
+
+
+def _claim_subscribe_auth(db: Session, auth: SubscribeAuth) -> None:
+    """Reserve one one-time grant before the external WeChat call.
+
+    The WeChat send API has no idempotency key.  Reserving first avoids using
+    the same grant repeatedly after a timeout or a permanent WeChat error.
+    """
+    auth.used = True
+    auth.used_at = utc_now_naive()
+    db.commit()
 
 
 def _create_supervision_log(
@@ -241,8 +299,15 @@ def finalize_previous_day_tasks(db: Session, now: datetime | None = None) -> int
     return len(tasks)
 
 
-def save_supervision_as_message(db: Session, user_id: int, content: str, effective_date: date) -> Message:
-    """将监督消息存入对话记录，用户打开小程序时可见"""
+def save_supervision_as_message(
+    db: Session,
+    user_id: int,
+    content: str,
+    effective_date: date,
+    supervision_type: str,
+) -> tuple[Message, SupervisionLog]:
+    """Atomically persist a fixed supervision message and its dedupe log."""
+    content = strip_task_protocol(content)
     conv = db.query(Conversation).filter(
         Conversation.user_id == user_id,
         Conversation.date == effective_date,
@@ -250,14 +315,335 @@ def save_supervision_as_message(db: Session, user_id: int, content: str, effecti
     if not conv:
         conv = Conversation(user_id=user_id, date=effective_date, title=f"目标追踪 {effective_date}")
         db.add(conv)
-        db.commit()
-        db.refresh(conv)
+        db.flush()
 
     msg = Message(conversation_id=conv.id, role="assistant", content=content)
     db.add(msg)
+    db.flush()
+    supervision_log = SupervisionLog(
+        user_id=user_id,
+        supervision_type=supervision_type,
+        task_date=effective_date,
+        channel="in_app",
+        message_id=msg.id,
+    )
+    db.add(supervision_log)
     db.commit()
     db.refresh(msg)
-    return msg
+    db.refresh(supervision_log)
+    return msg, supervision_log
+
+
+async def _deliver_pending_wechat_notice(
+    db: Session,
+    user: User,
+    effective_date: date,
+    now: datetime,
+) -> dict | None:
+    """Retry a same-day in-app reminder after the user grants notification access."""
+    from config import settings
+    from services.wechat_service import wechat_service
+
+    template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+    if not template_id:
+        return None
+    # Fresh in-app notices may be promoted. Known failures and uncertain sends
+    # are retryable for this business day only after a new explicit grant.
+    freshness_cutoff = utc_now_naive() - timedelta(minutes=5)
+    pending_log = db.query(SupervisionLog).filter(
+        SupervisionLog.user_id == user.id,
+        SupervisionLog.task_date == effective_date,
+        or_(
+            and_(SupervisionLog.channel == "in_app", SupervisionLog.sent_at >= freshness_cutoff),
+            SupervisionLog.channel.in_(("wechat_failed", "wechat_unknown")),
+        ),
+        SupervisionLog.message_id.isnot(None),
+    ).order_by(SupervisionLog.sent_at.desc()).first()
+    if not pending_log:
+        return None
+    scene = _scene_for_type(pending_log.supervision_type)
+    auth = _consume_subscribe_auth(db, user.id, template_id, scene)
+    if not auth:
+        return None
+    message = db.query(Message).filter(Message.id == pending_log.message_id).first()
+    if not message:
+        return None
+    summary = get_user_task_summary(db, user.id, effective_date)
+    pending_log.channel = "wechat_pending"
+    db.commit()
+    _claim_subscribe_auth(db, auth)
+    sent = await wechat_service.send_subscribe_message(
+        openid=user.openid,
+        template_id=template_id,
+        data={
+            "thing1": {"value": message.content[:20]},
+            "time2": {"value": now.strftime("%Y-%m-%d %H:%M")},
+        },
+    )
+    pending_log.channel = _wechat_channel(sent)
+    if pending_log.channel != "wechat":
+        db.commit()
+        _record_event(db, user, "wechat_notice_unknown" if sent is None else "wechat_notice_failed", {
+            "supervision_type": pending_log.supervision_type,
+            "scene": scene,
+            "retried_after_auth": True,
+        })
+        return None
+    pending_log.channel = "wechat"
+    db.commit()
+    _record_event(db, user, "wechat_notice_sent", {
+        "supervision_type": pending_log.supervision_type,
+        "scene": scene,
+        "retried_after_auth": True,
+    })
+    return {
+        "user_id": user.id,
+        "openid": user.openid,
+        "type": pending_log.supervision_type,
+        "message": message.content,
+        "channel": "wechat",
+    }
+
+
+def _fallback_supervision_message(supervision_type: str, summary: dict) -> str:
+    """Keep reminders useful even when the LLM provider is unavailable."""
+    completed = len(summary.get("completed_tasks") or [])
+    pending = len(summary.get("uncompleted_tasks") or [])
+    total = completed + pending
+    if supervision_type == "evening_review":
+        if total:
+            return f"今晚复盘：{total} 个任务完成了 {completed} 个。没做完的先看一眼，决定现在收尾还是安排到明天。"
+        return "今晚还没有任务记录。花一分钟写下明天最重要的一件事。"
+    if supervision_type in {"unfinished_followup", "behavior_nudge"}:
+        if pending:
+            return f"还有 {pending} 个任务没动。先选一个最小步骤，或者告诉我卡在哪里。"
+        return "今天还没看到新的完成记录。需要的话，把下一步缩小一点。"
+    if supervision_type == "afternoon_nudge":
+        return f"你还有 {pending} 个任务。现在方便的话，先做十分钟；不方便就调整一下时间。"
+    if total:
+        return f"今天有 {total} 个任务，先选一个最小的开始。"
+    return "新的一天开始了。先列出今天最重要的一件事，再决定第一步。"
+
+
+async def _retry_failed_scheduled_reminders(db: Session, now: datetime) -> list[dict]:
+    """Retry only confirmed WeChat failures after a new user grant."""
+    from config import settings
+    from services.wechat_service import wechat_service
+
+    cutoff = beijing_to_utc_naive(now) - timedelta(minutes=30)
+    reminders = db.query(ScheduledReminder).filter(
+        ScheduledReminder.status == "sent",
+        ScheduledReminder.channel.in_(("wechat_failed", "wechat_unknown")),
+        ScheduledReminder.sent_at >= cutoff,
+    ).all()
+    results = []
+    for reminder in reminders:
+        user = db.query(User).filter(User.id == reminder.user_id).first()
+        auth = _consume_subscribe_auth(db, reminder.user_id, settings.WECHAT_SUBSCRIBE_TEMPLATE_ID, "scheduled_reminder") if user and settings.WECHAT_SUBSCRIBE_TEMPLATE_ID else None
+        if not auth:
+            continue
+        reminder.channel = "wechat_pending"
+        reminder.sent_at = utc_now_naive()
+        db.commit()
+        _claim_subscribe_auth(db, auth)
+        try:
+            sent = await wechat_service.send_subscribe_message(
+                openid=user.openid,
+                template_id=settings.WECHAT_SUBSCRIBE_TEMPLATE_ID,
+                data={
+                    "thing1": {"value": reminder.content[:20]},
+                    "time2": {"value": utc_naive_to_beijing(reminder.scheduled_at).strftime("%Y-%m-%d %H:%M")},
+                },
+            )
+            reminder.channel = _wechat_channel(sent)
+            _record_event(db, user, "wechat_notice_sent" if sent is True else ("wechat_notice_unknown" if sent is None else "wechat_notice_failed"), {
+                "supervision_type": "scheduled_reminder",
+                "reminder_id": reminder.id,
+                "scene": "scheduled_reminder",
+                "retried_after_auth": True,
+            })
+        except Exception as exc:
+            reminder.channel = "wechat_unknown"
+            logger.warning("定时提醒 %s 重试结果未知: %s", reminder.id, exc)
+            _record_event(db, user, "wechat_notice_unknown", {
+                "supervision_type": "scheduled_reminder",
+                "reminder_id": reminder.id,
+                "scene": "scheduled_reminder",
+                "retried_after_auth": True,
+            })
+        reminder.sent_at = utc_now_naive()
+        db.commit()
+        results.append({"user_id": user.id, "openid": user.openid, "type": "scheduled_reminder", "message": reminder.content, "channel": reminder.channel})
+    return results
+
+
+async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[dict]:
+    """Deliver persisted exact-time reminders without invoking the LLM."""
+    from config import settings
+    from services.wechat_service import wechat_service
+
+    now_utc = beijing_to_utc_naive(now)
+    grace_cutoff = now_utc - timedelta(minutes=30)
+    pending_cutoff = now_utc - timedelta(seconds=settings.AGENT_RUN_LEASE_SECONDS)
+
+    # A crash after the in-app message commit but around the external call is
+    # finalized without retrying WeChat, whose API has no idempotency key.
+    processing = db.query(ScheduledReminder).filter(
+        ScheduledReminder.message_id.isnot(None),
+        or_(
+            ScheduledReminder.status == "processing",
+            and_(
+                ScheduledReminder.status == "sent",
+                ScheduledReminder.channel == "wechat_pending",
+                ScheduledReminder.sent_at < pending_cutoff,
+            ),
+        ),
+    ).all()
+    for reminder in processing:
+        reminder.status = "sent"
+        if reminder.channel == "wechat_pending":
+            reminder.channel = "wechat_unknown"
+        else:
+            reminder.channel = reminder.channel or "in_app"
+        reminder.sent_at = reminder.sent_at or now_utc
+    if processing:
+        db.commit()
+
+    # A reminder hours late is more confusing than useful.  Keep the row for
+    # auditability, but do not suddenly push a stale external notification.
+    stale = db.query(ScheduledReminder).filter(
+        ScheduledReminder.status == "pending",
+        ScheduledReminder.scheduled_at < grace_cutoff,
+    ).all()
+    for reminder in stale:
+        reminder.status = "expired"
+    if stale:
+        db.commit()
+
+    results: list[dict] = await _retry_failed_scheduled_reminders(db, now)
+    reminders = db.query(ScheduledReminder).filter(
+        ScheduledReminder.status == "pending",
+        ScheduledReminder.scheduled_at >= grace_cutoff,
+        ScheduledReminder.scheduled_at <= now_utc,
+    ).order_by(ScheduledReminder.scheduled_at.asc()).limit(100).all()
+
+    for reminder in reminders:
+        user = db.query(User).filter(User.id == reminder.user_id).first()
+        if not user:
+            reminder.status = "expired"
+            db.commit()
+            continue
+
+        remind_at = utc_naive_to_beijing(reminder.scheduled_at)
+        effective_date = get_effective_date(remind_at)
+        visible_text = f"到时间了：{reminder.content}。先从最小一步开始。"
+
+        try:
+            # Persist the in-app fallback first.  Marking processing before the
+            # external call prevents duplicate WeChat sends after a crash.
+            conv = db.query(Conversation).filter(
+                Conversation.user_id == user.id,
+                Conversation.date == effective_date,
+            ).first()
+            if not conv:
+                conv = Conversation(
+                    user_id=user.id,
+                    date=effective_date,
+                    title=f"目标追踪 {effective_date}",
+                )
+                db.add(conv)
+                db.flush()
+            msg = Message(conversation_id=conv.id, role="assistant", content=visible_text)
+            db.add(msg)
+            db.flush()
+            reminder.status = "processing"
+            reminder.channel = "in_app"
+            reminder.message_id = msg.id
+            db.commit()
+
+            channel = "in_app"
+            template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+            if template_id:
+                auth = _consume_subscribe_auth(
+                    db,
+                    user.id,
+                    template_id,
+                    "scheduled_reminder",
+                )
+                if auth:
+                    reminder.channel = "wechat_pending"
+                    db.commit()
+                    _claim_subscribe_auth(db, auth)
+                    try:
+                        sent = await wechat_service.send_subscribe_message(
+                            openid=user.openid,
+                            template_id=template_id,
+                            data={
+                                "thing1": {"value": reminder.content[:20]},
+                                "time2": {"value": remind_at.strftime("%Y-%m-%d %H:%M")},
+                            },
+                        )
+                        channel = _wechat_channel(sent)
+                        _record_event(db, user, "wechat_notice_sent" if sent is True else ("wechat_notice_unknown" if sent is None else "wechat_notice_failed"), {
+                            "supervision_type": "scheduled_reminder",
+                            "reminder_id": reminder.id,
+                            "scene": "scheduled_reminder",
+                        })
+                    except Exception as exc:
+                        channel = "wechat_unknown"
+                        logger.warning("定时提醒 %s 微信结果未知: %s", reminder.id, exc)
+                        _record_event(db, user, "wechat_notice_unknown", {
+                            "supervision_type": "scheduled_reminder",
+                            "reminder_id": reminder.id,
+                            "scene": "scheduled_reminder",
+                        })
+                else:
+                    _record_event(db, user, "wechat_notice_no_auth", {
+                        "supervision_type": "scheduled_reminder",
+                        "reminder_id": reminder.id,
+                        "scene": "scheduled_reminder",
+                    })
+
+            reminder.status = "sent"
+            reminder.channel = channel
+            reminder.sent_at = utc_now_naive()
+            db.commit()
+            _create_supervision_log(
+                db,
+                user_id=user.id,
+                supervision_type="scheduled_reminder",
+                task_date=effective_date,
+                channel=channel,
+                message_id=msg.id,
+            )
+            _record_event(db, user, "scheduled_reminder_delivered", {
+                "reminder_id": reminder.id,
+                "channel": channel,
+            })
+            results.append({
+                "user_id": user.id,
+                "openid": user.openid,
+                "type": "scheduled_reminder",
+                "message": visible_text,
+                "channel": channel,
+            })
+        except Exception as exc:
+            logger.error("定时提醒 %s 发送失败: %s", reminder.id, exc)
+            db.rollback()
+            current = db.query(ScheduledReminder).filter(
+                ScheduledReminder.id == reminder.id,
+            ).first()
+            # If the in-app message was committed, do not risk a duplicate
+            # external send; finalize it as an in-app delivery.
+            if current and current.message_id:
+                current.status = "sent"
+                current.channel = current.channel if current.channel in {
+                    "wechat_pending", "wechat_failed", "wechat_unknown"
+                } else "in_app"
+                current.sent_at = utc_now_naive()
+                db.commit()
+
+    return results
 
 
 async def run_supervision_cycle(db: Session) -> list[dict]:
@@ -272,11 +658,30 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
 
     now = beijing_now()
     effective_date = get_effective_date(now)
-    results = []
+    recover_stale_agent_runs(db)
+    stale_notices = db.query(SupervisionLog).filter(
+        SupervisionLog.channel == "wechat_pending",
+        SupervisionLog.sent_at < utc_now_naive() - timedelta(seconds=settings.AGENT_RUN_LEASE_SECONDS),
+    ).all()
+    for notice in stale_notices:
+        # WeChat has no idempotency key. A crashed send is unknown, not a
+        # confirmed failure: keep the in-app message and never blindly resend.
+        notice.channel = "wechat_unknown"
+    if stale_notices:
+        db.commit()
+    results = await _deliver_due_scheduled_reminders(db, now)
 
     users = db.query(User).all()
 
     for user in users:
+        try:
+            retried = await _deliver_pending_wechat_notice(db, user, effective_date, now)
+            if retried:
+                results.append(retried)
+        except Exception as e:
+            logger.error(f"用户 {user.id} 待发送微信提醒重试失败: {e}")
+            db.rollback()
+
         due_types = get_due_supervision_types(db, user, now)
         if not due_types:
             continue
@@ -293,17 +698,66 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                 if not summary["goal"]:
                     summary["goal"] = yesterday_summary["goal"]
 
-            try:
-                message = await generate_supervision(
-                    supervision_type=_to_prompt_type(supervision_type),
-                    goal=summary["goal"],
-                    completed_tasks=summary["completed_tasks"],
-                    uncompleted_tasks=summary["uncompleted_tasks"],
-                    memory_context=memory_context,
-                )
+            run_key = f"supervision:{effective_date.isoformat()}:{supervision_type}"
+            agent_run, should_run = begin_agent_run(
+                db,
+                user_id=user.id,
+                run_key=run_key,
+                agent_name="supervisor",
+                stage="understand",
+                trigger="scheduled",
+                input_snapshot={
+                    "supervision_type": supervision_type,
+                    "task_date": effective_date.isoformat(),
+                    "goal": summary["goal"],
+                    "completed_count": len(summary["completed_tasks"]),
+                    "pending_count": len(summary["uncompleted_tasks"]),
+                },
+            )
+            if not should_run:
+                logger.info("监督 Agent 跳过重复运行: user=%s key=%s", user.id, run_key)
+                continue
 
-                # 存入对话记录
-                msg = save_supervision_as_message(db, user.id, message, effective_date)
+            try:
+                advance_agent_stage(db, agent_run, "plan")
+                agent_status = "completed"
+                agent_provider = ""
+                agent_output = {}
+                try:
+                    generated = await generate_supervision(
+                        supervision_type=_to_prompt_type(supervision_type),
+                        goal=summary["goal"],
+                        completed_tasks=summary["completed_tasks"],
+                        uncompleted_tasks=summary["uncompleted_tasks"],
+                        memory_context=memory_context,
+                        with_provider=True,
+                    )
+                    if isinstance(generated, tuple):
+                        message, agent_provider = generated
+                    else:
+                        message, agent_provider = generated, "unknown"
+                    agent_output = {"message": message, "supervision_type": supervision_type}
+                except Exception as llm_error:
+                    logger.warning(
+                        "用户 %s 监督文案生成失败，使用固定兜底: %s",
+                        user.id,
+                        llm_error,
+                    )
+                    message = _fallback_supervision_message(supervision_type, summary)
+                    agent_status = "fallback"
+                    agent_provider = "fallback"
+                    agent_output = {"message": message, "reason": "model_unavailable"}
+
+                # 消息与去重日志同一事务落库；任何一个写入失败都不会留下
+                # “有消息无日志”的崩溃窗口。
+                msg, supervision_log = save_supervision_as_message(
+                    db,
+                    user.id,
+                    message,
+                    effective_date,
+                    supervision_type,
+                )
+                advance_agent_stage(db, agent_run, "act")
 
                 # 尝试推送订阅消息
                 channel = "in_app"
@@ -312,22 +766,40 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     scene = _scene_for_type(supervision_type)
                     auth = _consume_subscribe_auth(db, user.id, template_id, scene)
                     if auth:
+                        supervision_log.channel = "wechat_pending"
+                        supervision_log.sent_at = utc_now_naive()
+                        db.commit()
+                        _claim_subscribe_auth(db, auth)
                         sent = await wechat_service.send_subscribe_message(
                             openid=user.openid,
                             template_id=template_id,
                             data={
-                                # Template 37312: task name, deadline, reminder.
-                                "thing1": {"value": (summary["goal"] or "学习任务")[:20]},
-                                "time3": {"value": now.strftime("%Y-%m-%d %H:%M")},
-                                "thing4": {"value": message[:20]},
+                                # Template 37312: reminder content and time.
+                                "thing1": {"value": message[:20]},
+                                "time2": {"value": now.strftime("%Y-%m-%d %H:%M")},
                             },
                         )
-                        if sent:
+                        if sent is True:
                             channel = "wechat"
-                            auth.used = True
-                            auth.used_at = now
+                            supervision_log.channel = channel
                             db.commit()
                             _record_event(db, user, "wechat_notice_sent", {
+                                "supervision_type": supervision_type,
+                                "scene": scene,
+                            })
+                        elif sent is None:
+                            channel = "wechat_unknown"
+                            supervision_log.channel = channel
+                            db.commit()
+                            _record_event(db, user, "wechat_notice_unknown", {
+                                "supervision_type": supervision_type,
+                                "scene": scene,
+                            })
+                        else:
+                            channel = "wechat_failed"
+                            supervision_log.channel = channel
+                            db.commit()
+                            _record_event(db, user, "wechat_notice_failed", {
                                 "supervision_type": supervision_type,
                                 "scene": scene,
                             })
@@ -336,19 +808,23 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                             "supervision_type": supervision_type,
                             "scene": scene,
                         })
-
-                _create_supervision_log(
-                    db,
-                    user_id=user.id,
-                    supervision_type=supervision_type,
-                    task_date=effective_date,
-                    channel=channel,
-                    message_id=msg.id,
-                )
                 _record_event(db, user, "supervision_generated", {
                     "supervision_type": supervision_type,
                     "channel": channel,
                 })
+                verification = verify_agent_run(db, agent_run, {
+                    "message_persisted": db.get(Message, msg.id) is not None,
+                    "supervision_log_persisted": db.get(SupervisionLog, supervision_log.id) is not None,
+                    "channel_finalized": channel in {"in_app", "wechat", "wechat_failed", "wechat_unknown"},
+                })
+                finish_agent_run(
+                    db,
+                    agent_run,
+                    status=agent_status,
+                    output_snapshot={**agent_output, "channel": channel, "verification": verification},
+                    provider=agent_provider,
+                    stage="reflect",
+                )
 
                 results.append({
                     "user_id": user.id,
@@ -357,6 +833,11 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     "message": message,
                 })
             except Exception as e:
+                try:
+                    finish_agent_run(db, agent_run, status="failed", error_message=str(e))
+                except Exception:
+                    db.rollback()
                 logger.error(f"用户 {user.id} 监督生成失败: {e}")
+                db.rollback()
 
     return results

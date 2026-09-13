@@ -17,8 +17,8 @@ class WeChatService:
         self._access_token = ""
         self._token_expires_at = 0
 
-    async def get_access_token(self) -> str:
-        """获取 access_token，带缓存（7000s TTL）"""
+    async def get_access_token(self) -> str | None:
+        """获取 access_token；None 表示网络结果未知，空串表示明确不可用。"""
         if self._access_token and time.time() < self._token_expires_at:
             return self._access_token
 
@@ -46,17 +46,19 @@ class WeChatService:
                     return ""
         except Exception as e:
             logger.error(f"[WeChatService] 获取 access_token 异常: {e}")
-            return ""
+            return None
 
     async def send_subscribe_message(
         self, openid: str, template_id: str, data: dict
-    ) -> bool:
-        """发送订阅消息 — 一次性授权模式"""
+    ) -> bool | None:
+        """发送订阅消息；True=成功，False=明确失败，None=结果未知。"""
         if not settings.WECHAT_APPID or settings.WECHAT_APPID == "touristappid":
             logger.debug("[WeChatService] appid 为占位符，跳过发送订阅消息")
             return False
 
         token = await self.get_access_token()
+        if token is None:
+            return None
         if not token:
             return False
 
@@ -80,7 +82,7 @@ class WeChatService:
                     return False
         except Exception as e:
             logger.error(f"[WeChatService] 发送订阅消息异常: {e}")
-            return False
+            return None
 
 
 wechat_service = WeChatService()

@@ -18,6 +18,7 @@ from database import get_db
 from models import User, PayOrder
 from schemas import PayOrderRequest, PayCancelRequest, PayOrderOut, PayStatusOut
 from services.pay_service import wechat_pay, generate_out_trade_no
+from services.auth_service import get_trusted_openid, require_openid_match
 from services.user_state import normalize_vip_status
 
 router = APIRouter(prefix="/api/pay", tags=["pay"])
@@ -43,9 +44,14 @@ def _validate_paid_order(data: dict, order: PayOrder) -> str:
 
 
 @router.post("/create_order", response_model=PayOrderOut)
-async def create_pay_order(req: PayOrderRequest, db: Session = Depends(get_db)):
+async def create_pay_order(
+    req: PayOrderRequest,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
     """统一下单接口 — 返回前端拉起支付所需参数"""
-    user = db.query(User).filter(User.openid == req.openid).first()
+    openid = require_openid_match(req.openid, trusted_openid)
+    user = db.query(User).filter(User.openid == openid).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     user = normalize_vip_status(db, user)
@@ -66,14 +72,14 @@ async def create_pay_order(req: PayOrderRequest, db: Session = Depends(get_db)):
         order = PayOrder(
             out_trade_no=out_trade_no,
             user_id=user.id,
-            openid=req.openid,
+            openid=openid,
             amount_cents=settings.VIP_PRICE_CENTS,
             status="created",
         )
         db.add(order)
         db.commit()
 
-        params = await wechat_pay.create_order(openid=req.openid, out_trade_no=out_trade_no)
+        params = await wechat_pay.create_order(openid=openid, out_trade_no=out_trade_no)
         order.prepay_id = params.get("prepay_id", "")
         db.commit()
         return params
@@ -156,11 +162,16 @@ async def pay_callback(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/cancel")
-async def cancel_pay_order(req: PayCancelRequest, db: Session = Depends(get_db)):
+async def cancel_pay_order(
+    req: PayCancelRequest,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
     """前端支付取消后回写订单状态，用于付费漏斗分析。"""
+    openid = require_openid_match(req.openid, trusted_openid)
     order = db.query(PayOrder).filter(
         PayOrder.out_trade_no == req.out_trade_no,
-        PayOrder.openid == req.openid,
+        PayOrder.openid == openid,
     ).first()
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
@@ -171,8 +182,13 @@ async def cancel_pay_order(req: PayCancelRequest, db: Session = Depends(get_db))
 
 
 @router.get("/status/{openid}", response_model=PayStatusOut)
-async def get_pay_status(openid: str, db: Session = Depends(get_db)):
+async def get_pay_status(
+    openid: str,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
     """查询用户 VIP 状态"""
+    openid = require_openid_match(openid, trusted_openid)
     user = db.query(User).filter(User.openid == openid).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")

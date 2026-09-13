@@ -7,7 +7,18 @@
 """
 
 from datetime import datetime, time
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Time, Date
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Text,
+    ForeignKey,
+    Time,
+    Date,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -74,11 +85,15 @@ class Conversation(Base):
 class Message(Base):
     """消息模型 — 单条聊天记录"""
     __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "request_id", name="uq_message_request"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
     role = Column(String(16), nullable=False, comment="user / assistant")
     content = Column(Text, default="")
+    request_id = Column(String(128), nullable=True, comment="客户端请求幂等键，仅用户消息使用")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
@@ -95,6 +110,39 @@ class SubscribeAuth(Base):
     auth_time = Column(DateTime, default=datetime.utcnow, comment="授权时间")
     used = Column(Boolean, default=False, comment="是否已消费")
     used_at = Column(DateTime, nullable=True, comment="消费时间")
+
+
+class ScheduledReminder(Base):
+    """用户通过聊天明确创建的单次定时提醒。"""
+    __tablename__ = "scheduled_reminders"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_scheduled_reminder_request"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # 同一条聊天消息只允许创建一个提醒，避免小程序重试导致重复入库。
+    source_message_id = Column(
+        Integer,
+        ForeignKey("messages.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    idempotency_key = Column(String(128), nullable=False)
+    content = Column(Text, nullable=False, comment="提醒内容")
+    scheduled_at = Column(DateTime, nullable=False, index=True, comment="UTC 时间")
+    status = Column(
+        String(32),
+        default="pending",
+        nullable=False,
+        index=True,
+        comment="pending/processing/sent/expired; channel tracks in_app/wechat/pending/failed/unknown",
+    )
+    channel = Column(String(32), default="", comment="wechat/in_app")
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, nullable=True)
 
 
 class PayOrder(Base):
@@ -150,3 +198,27 @@ class AnalyticsEvent(Base):
     event_name = Column(String(128), nullable=False, index=True)
     properties = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AgentRun(Base):
+    """一次可追踪的 Agent 闭环执行。"""
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "run_key", name="uq_agent_run_user_key"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    run_key = Column(String(192), nullable=False)
+    agent_name = Column(String(64), nullable=False, index=True)
+    stage = Column(String(32), nullable=False, comment="understand/plan/act/verify/reflect")
+    trigger = Column(String(64), nullable=False, comment="chat/scheduled/task_change")
+    status = Column(String(32), nullable=False, default="running", index=True)
+    provider = Column(String(32), default="", comment="bailian/zhipu/fallback")
+    input_snapshot = Column(Text, default="{}")
+    output_snapshot = Column(Text, default="{}")
+    error_message = Column(Text, default="")
+    lease_token = Column(String(64), default="", nullable=False, comment="当前执行租约 fencing token")
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)

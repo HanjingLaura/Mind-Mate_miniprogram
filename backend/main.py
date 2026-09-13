@@ -6,16 +6,21 @@
 - 增加中间件链（CORS、认证、日志）
 """
 
+import hmac
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from database import engine, Base
-from routers import chat, tasks, user, pay, admin, telemetry
-from scheduler import start_scheduler, shutdown_scheduler
+from routers import chat, tasks, user, pay, admin, telemetry, upload
+from config import settings
+from scheduler import run_supervision_job_once, start_scheduler, shutdown_scheduler
+from services.model_gateway import describe_routes, ModelProviderUnavailable
 
 # 日志配置
 logging.basicConfig(
@@ -37,17 +42,36 @@ def ensure_runtime_schema():
             conn.execute(text("ALTER TABLE subscribe_auths ADD COLUMN scene VARCHAR(64) DEFAULT 'general'"))
         if rows and "used_at" not in columns:
             conn.execute(text("ALTER TABLE subscribe_auths ADD COLUMN used_at DATETIME"))
+        message_rows = conn.execute(text("PRAGMA table_info(messages)")).fetchall()
+        message_columns = {row[1] for row in message_rows}
+        if message_rows and "request_id" not in message_columns:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN request_id VARCHAR(128)"))
+        if message_rows:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_message_request "
+                "ON messages (conversation_id, request_id) WHERE request_id IS NOT NULL"
+            ))
+        run_rows = conn.execute(text("PRAGMA table_info(agent_runs)")).fetchall()
+        run_columns = {row[1] for row in run_rows}
+        if run_rows and "lease_token" not in run_columns:
+            conn.execute(text("ALTER TABLE agent_runs ADD COLUMN lease_token VARCHAR(64) DEFAULT '' NOT NULL"))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期 — 启动时建表，关闭时清理"""
+    if settings.APP_ENV == "production" and not settings.APP_SECRET:
+        raise RuntimeError("生产环境必须配置 APP_SECRET")
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
     logger.info("数据库表已初始化")
-    start_scheduler()
+    if settings.EMBEDDED_SCHEDULER_ENABLED:
+        start_scheduler()
+    else:
+        logger.info("内嵌监督调度器已关闭；等待云定时任务调用")
     yield
-    shutdown_scheduler()
+    if settings.EMBEDDED_SCHEDULER_ENABLED:
+        shutdown_scheduler()
     logger.info("应用关闭")
 
 
@@ -74,6 +98,11 @@ app.include_router(user.router)
 app.include_router(pay.router)
 app.include_router(admin.router)
 app.include_router(telemetry.router)
+app.include_router(upload.router)
+
+_upload_dir = Path(__file__).resolve().parent / "uploads"
+_upload_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_upload_dir)), name="uploads")
 
 
 @app.get("/")
@@ -84,3 +113,37 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/agent")
+async def agent_health():
+    """Expose safe runtime capabilities without returning API keys."""
+    try:
+        model = describe_routes()
+    except ModelProviderUnavailable as exc:
+        model = {"active": None, "fallbacks": [], "error": str(exc)}
+    return {
+        "status": "ok",
+        "model": model,
+        "scheduler": {"embedded": settings.EMBEDDED_SCHEDULER_ENABLED, "interval_minutes": 1},
+        "closed_loop": ["understand", "plan", "act", "verify", "reflect"],
+    }
+
+
+@app.post("/internal/cron/supervision")
+async def run_supervision_cron(
+    x_internal_cron_secret: str = Header("", alias="X-Internal-Cron-Secret"),
+):
+    """供云定时任务调用的单次监督轮询；不接受查询参数密钥。"""
+    expected = settings.INTERNAL_CRON_SECRET
+    if len(expected) < 32:
+        raise HTTPException(status_code=503, detail="内部定时任务未配置")
+    if not hmac.compare_digest(x_internal_cron_secret, expected):
+        raise HTTPException(status_code=401, detail="无权调用定时任务")
+
+    result = await run_supervision_job_once()
+    return {
+        "status": result["status"],
+        "finalized": result["finalized"],
+        "delivered_count": len(result["results"]),
+    }
