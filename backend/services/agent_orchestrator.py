@@ -30,7 +30,6 @@ def _stage_history(run: AgentRun) -> list[str]:
 def advance_agent_stage(db: Session, run: AgentRun, stage: str) -> AgentRun:
     """Persist the next auditable stage before the next side effect."""
     _validate_next_stage(run.stage, stage)
-    _assert_run_lease(db, run)
     try:
         snapshot = json.loads(run.input_snapshot or "{}")
     except (TypeError, ValueError):
@@ -38,27 +37,28 @@ def advance_agent_stage(db: Session, run: AgentRun, stage: str) -> AgentRun:
     history = snapshot.setdefault("stage_history", [run.stage])
     if not history or history[-1] != stage:
         history.append(stage)
-    run.stage = stage
-    run.input_snapshot = json.dumps(snapshot, ensure_ascii=False)
-    db.flush()
+    _fenced_update(db, run, {
+        "stage": stage,
+        "input_snapshot": json.dumps(snapshot, ensure_ascii=False),
+    })
     return run
 
 
 def verify_agent_run(db: Session, run: AgentRun, checks: dict[str, bool]) -> dict:
     """Verify flushed database facts inside the final atomic transaction."""
     _validate_next_stage(run.stage, "verify")
-    _assert_run_lease(db, run)
     snapshot = json.loads(run.input_snapshot or "{}")
     history = snapshot.setdefault("stage_history", [run.stage])
     if not history or history[-1] != "verify":
         history.append("verify")
-    run.stage = "verify"
-    run.input_snapshot = json.dumps(snapshot, ensure_ascii=False)
     verification = {"checks": checks, "passed": bool(checks) and all(checks.values())}
-    run.output_snapshot = json.dumps({"verification": verification}, ensure_ascii=False)
-    db.flush()
     if not verification["passed"]:
         raise RuntimeError("Agent result verification failed")
+    _fenced_update(db, run, {
+        "stage": "verify",
+        "input_snapshot": json.dumps(snapshot, ensure_ascii=False),
+        "output_snapshot": json.dumps({"verification": verification}, ensure_ascii=False),
+    })
     return verification
 
 
@@ -71,6 +71,20 @@ def _assert_run_lease(db: Session, run: AgentRun) -> None:
     ).first()
     if current is None:
         raise RuntimeError("Agent run lease is no longer owned")
+
+
+def _fenced_update(db: Session, run: AgentRun, values: dict) -> None:
+    """Update a run only while this worker still owns its fencing token."""
+    updated = db.query(AgentRun).filter(
+        AgentRun.id == run.id,
+        AgentRun.status == "running",
+        AgentRun.lease_token == run.lease_token,
+    ).update(values, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise RuntimeError("Agent run lease is no longer owned")
+    for key, value in values.items():
+        setattr(run, key, value)
 
 
 def _validate_next_stage(current: str, target: str) -> None:

@@ -146,6 +146,7 @@ class ScheduledReminder(Base):
     message_id = Column(Integer, ForeignKey("messages.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     sent_at = Column(DateTime, nullable=True)
+    processing_token = Column(String(64), default="", nullable=False, comment="定时发送租约 fencing token")
 
 
 class PayOrder(Base):

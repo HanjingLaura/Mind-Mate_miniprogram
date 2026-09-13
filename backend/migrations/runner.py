@@ -15,7 +15,7 @@ from sqlalchemy import Column, DateTime, MetaData, String, Table, inspect, text
 from database import engine
 
 
-MIGRATION_VERSIONS = ("001_agent_idempotency", "002_conversation_ownership")
+MIGRATION_VERSIONS = ("001_agent_idempotency", "002_conversation_ownership", "003_reminder_leases")
 LOCK_NAME = "mindmate_schema_migrations"
 
 
@@ -103,6 +103,13 @@ def run_pending_migrations() -> None:
                     _ensure_request_index(conn)
                 elif version == "002_conversation_ownership":
                     _ensure_conversation_index(conn)
+                elif version == "003_reminder_leases":
+                    _add_column_if_missing(
+                        conn,
+                        "scheduled_reminders",
+                        "processing_token",
+                        "processing_token VARCHAR(64) NOT NULL DEFAULT ''",
+                    )
                 conn.execute(migrations.insert().values(
                     version=version,
                     applied_at=datetime.utcnow(),

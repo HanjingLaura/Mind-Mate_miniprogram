@@ -8,6 +8,7 @@
 
 import json
 import logging
+import secrets
 from datetime import datetime, date, timedelta
 
 from sqlalchemy import and_, or_
@@ -495,31 +496,43 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
     grace_cutoff = now_utc - timedelta(minutes=30)
     pending_cutoff = now_utc - timedelta(seconds=settings.AGENT_RUN_LEASE_SECONDS)
 
-    # A crash after the in-app message commit but around the external call is
-    # finalized without retrying WeChat, whose API has no idempotency key.
-    processing = db.query(ScheduledReminder).filter(
+    # Recover only expired processing leases. The token prevents an old worker
+    # from overwriting a newer scheduler attempt after this recovery runs.
+    stale_processing = db.query(ScheduledReminder).filter(
         ScheduledReminder.message_id.isnot(None),
-        or_(
-            and_(
-                ScheduledReminder.status == "processing",
-                ScheduledReminder.sent_at.isnot(None),
-                ScheduledReminder.sent_at < pending_cutoff,
-            ),
-            and_(
-                ScheduledReminder.status == "sent",
-                ScheduledReminder.channel == "wechat_pending",
-                ScheduledReminder.sent_at < pending_cutoff,
-            ),
-        ),
+        ScheduledReminder.status == "processing",
+        ScheduledReminder.processing_token != "",
+        ScheduledReminder.sent_at.isnot(None),
+        ScheduledReminder.sent_at < pending_cutoff,
     ).all()
-    for reminder in processing:
-        reminder.status = "sent"
-        if reminder.channel == "wechat_pending":
-            reminder.channel = "wechat_unknown"
-        else:
-            reminder.channel = reminder.channel or "in_app"
-        reminder.sent_at = reminder.sent_at or now_utc
-    if processing:
+    for reminder in stale_processing:
+        channel = "wechat_unknown" if reminder.channel == "wechat_pending" else "in_app"
+        db.query(ScheduledReminder).filter(
+            ScheduledReminder.id == reminder.id,
+            ScheduledReminder.status == "processing",
+            ScheduledReminder.processing_token == reminder.processing_token,
+        ).update({
+            "status": "sent",
+            "channel": channel,
+            "sent_at": now_utc,
+            "processing_token": "",
+        }, synchronize_session=False)
+    if stale_processing:
+        db.commit()
+
+    stale_pending_wechat = db.query(ScheduledReminder).filter(
+        ScheduledReminder.status == "sent",
+        ScheduledReminder.channel == "wechat_pending",
+        ScheduledReminder.sent_at < pending_cutoff,
+    ).all()
+    for reminder in stale_pending_wechat:
+        db.query(ScheduledReminder).filter(
+            ScheduledReminder.id == reminder.id,
+            ScheduledReminder.status == "sent",
+            ScheduledReminder.channel == "wechat_pending",
+            ScheduledReminder.sent_at < pending_cutoff,
+        ).update({"channel": "wechat_unknown", "sent_at": now_utc}, synchronize_session=False)
+    if stale_pending_wechat:
         db.commit()
 
     # A reminder hours late is more confusing than useful.  Keep the row for
@@ -552,8 +565,26 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
         visible_text = f"到时间了：{reminder.content}。先从最小一步开始。"
 
         try:
-            # Persist the in-app fallback first.  Marking processing before the
-            # external call prevents duplicate WeChat sends after a crash.
+            # Claim the reminder atomically before creating the in-app message.
+            # The token fences stale workers after a lease recovery.
+            processing_token = secrets.token_urlsafe(24)
+            claimed_at = utc_now_naive()
+            claimed = db.query(ScheduledReminder).filter(
+                ScheduledReminder.id == reminder.id,
+                ScheduledReminder.status == "pending",
+            ).update({
+                "status": "processing",
+                "channel": "in_app",
+                "sent_at": claimed_at,
+                "processing_token": processing_token,
+            }, synchronize_session=False)
+            if claimed != 1:
+                db.rollback()
+                continue
+            reminder.status = "processing"
+            reminder.channel = "in_app"
+            reminder.sent_at = claimed_at
+            reminder.processing_token = processing_token
             conv = db.query(Conversation).filter(
                 Conversation.user_id == user.id,
                 Conversation.date == effective_date,
@@ -569,10 +600,7 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
             msg = Message(conversation_id=conv.id, role="assistant", content=visible_text)
             db.add(msg)
             db.flush()
-            reminder.status = "processing"
-            reminder.channel = "in_app"
             reminder.message_id = msg.id
-            reminder.sent_at = utc_now_naive()
             db.commit()
 
             channel = "in_app"
@@ -619,9 +647,19 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
                         "scene": "scheduled_reminder",
                     })
 
-            reminder.status = "sent"
-            reminder.channel = channel
-            reminder.sent_at = utc_now_naive()
+            finalized = db.query(ScheduledReminder).filter(
+                ScheduledReminder.id == reminder.id,
+                ScheduledReminder.status == "processing",
+                ScheduledReminder.processing_token == processing_token,
+            ).update({
+                "status": "sent",
+                "channel": channel,
+                "sent_at": utc_now_naive(),
+                "processing_token": "",
+            }, synchronize_session=False)
+            if finalized != 1:
+                db.rollback()
+                continue
             db.commit()
             _create_supervision_log(
                 db,
@@ -656,6 +694,7 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
                     "wechat_pending", "wechat_failed", "wechat_unknown"
                 } else "in_app"
                 current.sent_at = utc_now_naive()
+                current.processing_token = ""
                 db.commit()
 
     return results

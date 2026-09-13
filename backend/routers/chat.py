@@ -212,7 +212,7 @@ def _reminder_error_reply(error: str) -> str:
 def _direct_chat_response(content: str, reminder_change: dict | None = None):
     """Return the same deterministic response shape for sync and local SSE."""
     async def generate():
-        yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'content': content, 'committed': True}, ensure_ascii=False)}\n\n"
         if reminder_change:
             yield f"data: {json.dumps({'reminder_change': reminder_change}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -505,6 +505,7 @@ async def chat_send(
             "也不能声称自己已经在某个时间提醒过用户。"
         )
         task_context = "\n\n".join(context_parts)
+        task_context = task_context[:settings.CHAT_CONTEXT_CHAR_BUDGET]
         advance_agent_stage(db, agent_run, "plan")
 
     except HTTPException:

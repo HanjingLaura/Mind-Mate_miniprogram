@@ -55,6 +55,10 @@ def ensure_runtime_schema():
         run_columns = {row[1] for row in run_rows}
         if run_rows and "lease_token" not in run_columns:
             conn.execute(text("ALTER TABLE agent_runs ADD COLUMN lease_token VARCHAR(64) DEFAULT '' NOT NULL"))
+        reminder_rows = conn.execute(text("PRAGMA table_info(scheduled_reminders)")).fetchall()
+        reminder_columns = {row[1] for row in reminder_rows}
+        if reminder_rows and "processing_token" not in reminder_columns:
+            conn.execute(text("ALTER TABLE scheduled_reminders ADD COLUMN processing_token VARCHAR(64) DEFAULT '' NOT NULL"))
 
 
 def ensure_production_schema():
@@ -69,7 +73,7 @@ def ensure_production_schema():
         versions = {
             row[0] for row in conn.execute(text("SELECT version FROM schema_migrations"))
         }
-    required = {"001_agent_idempotency", "002_conversation_ownership"}
+    required = {"001_agent_idempotency", "002_conversation_ownership", "003_reminder_leases"}
     missing = required - versions
     if missing:
         raise RuntimeError(f"生产数据库缺少迁移版本: {', '.join(sorted(missing))}")
@@ -81,8 +85,9 @@ async def lifespan(app: FastAPI):
     if settings.APP_ENV == "production" and not settings.APP_SECRET:
         raise RuntimeError("生产环境必须配置 APP_SECRET")
     ensure_production_schema()
-    Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema()
+    if settings.APP_ENV != "production":
+        Base.metadata.create_all(bind=engine)
+        ensure_runtime_schema()
     logger.info("数据库表已初始化")
     if settings.EMBEDDED_SCHEDULER_ENABLED:
         start_scheduler()
