@@ -296,7 +296,10 @@ async def chat_send(
 
         conv = _ensure_conversation(db, user.id, effective_date)
 
-        request_run_key = f"chat-request:{req.request_id.strip()}" if req.request_id.strip() else None
+        request_run_key = (
+            f"chat-request:{conv.id}:{req.request_id.strip()}"
+            if req.request_id.strip() else None
+        )
         existing_run = None
         if request_run_key:
             existing_run = db.query(AgentRun).filter(
