@@ -70,6 +70,9 @@ class DailyTask(Base):
 class Conversation(Base):
     """对话模型 — 按日期归档"""
     __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_conversation_user_date"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

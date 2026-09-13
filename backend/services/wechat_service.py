@@ -75,9 +75,12 @@ class WeChatService:
                 )
                 result = resp.json()
                 if result.get("errcode") == 0:
-                    logger.info(f"[WeChatService] 订阅消息发送成功: {openid}")
+                    logger.info("[WeChatService] 订阅消息发送成功")
                     return True
                 else:
+                    if result.get("errcode") in {40001, 40014, 42001}:
+                        self._access_token = ""
+                        self._token_expires_at = 0
                     logger.warning(f"[WeChatService] 订阅消息发送失败: {result}")
                     return False
         except Exception as e:

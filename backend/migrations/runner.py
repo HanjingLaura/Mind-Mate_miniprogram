@@ -15,7 +15,7 @@ from sqlalchemy import Column, DateTime, MetaData, String, Table, inspect, text
 from database import engine
 
 
-VERSION = "001_agent_idempotency"
+MIGRATION_VERSIONS = ("001_agent_idempotency", "002_conversation_ownership")
 LOCK_NAME = "mindmate_schema_migrations"
 
 
@@ -71,30 +71,43 @@ def _ensure_request_index(conn) -> None:
         ))
 
 
+def _ensure_conversation_index(conn) -> None:
+    indexes = {index["name"] for index in inspect(conn).get_indexes("conversations")}
+    if "uq_conversation_user_date" in indexes:
+        return
+    conn.execute(text(
+        "CREATE UNIQUE INDEX uq_conversation_user_date "
+        "ON conversations (user_id, date)"
+    ))
+
+
 def run_pending_migrations() -> None:
     with engine.begin() as conn:
         with _migration_lock(conn):
             migrations = _ensure_migration_table(conn)
-            applied = conn.execute(
-                migrations.select().where(migrations.c.version == VERSION)
-            ).first()
-            if applied:
-                print(f"already applied: {VERSION}")
-                return
-
-            _add_column_if_missing(conn, "messages", "request_id", "request_id VARCHAR(128) NULL")
-            _add_column_if_missing(
-                conn,
-                "agent_runs",
-                "lease_token",
-                "lease_token VARCHAR(64) NOT NULL DEFAULT ''",
-            )
-            _ensure_request_index(conn)
-            conn.execute(migrations.insert().values(
-                version=VERSION,
-                applied_at=datetime.utcnow(),
-            ))
-            print(f"applied: {VERSION}")
+            for version in MIGRATION_VERSIONS:
+                applied = conn.execute(
+                    migrations.select().where(migrations.c.version == version)
+                ).first()
+                if applied:
+                    print(f"already applied: {version}")
+                    continue
+                if version == "001_agent_idempotency":
+                    _add_column_if_missing(conn, "messages", "request_id", "request_id VARCHAR(128) NULL")
+                    _add_column_if_missing(
+                        conn,
+                        "agent_runs",
+                        "lease_token",
+                        "lease_token VARCHAR(64) NOT NULL DEFAULT ''",
+                    )
+                    _ensure_request_index(conn)
+                elif version == "002_conversation_ownership":
+                    _ensure_conversation_index(conn)
+                conn.execute(migrations.insert().values(
+                    version=version,
+                    applied_at=datetime.utcnow(),
+                ))
+                print(f"applied: {version}")
 
 
 if __name__ == "__main__":

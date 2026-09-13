@@ -82,6 +82,14 @@ class Settings:
     ALLOW_INSECURE_DEV_OPENID: bool = (
         os.getenv("ALLOW_INSECURE_DEV_OPENID", "false").lower() == "true"
     )
+    CORS_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://localhost:5178",
+        ).split(",")
+        if origin.strip()
+    ]
 
     # 跨端 App 会话签名；登录后前端以 Bearer Token 访问接口。
     # Never ship a deterministic signing secret. Production must provide one;

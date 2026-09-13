@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from database import engine, Base
 from routers import chat, tasks, user, pay, admin, telemetry, upload
@@ -57,6 +57,22 @@ def ensure_runtime_schema():
             conn.execute(text("ALTER TABLE agent_runs ADD COLUMN lease_token VARCHAR(64) DEFAULT '' NOT NULL"))
 
 
+def ensure_production_schema():
+    """Fail closed when a persistent database has not run versioned migrations."""
+    if str(engine.url).startswith("sqlite") or settings.APP_ENV != "production":
+        return
+    if not inspect(engine).has_table("schema_migrations"):
+        raise RuntimeError("生产数据库未初始化 schema_migrations，请先运行 python -m migrations.runner")
+    with engine.connect() as conn:
+        versions = {
+            row[0] for row in conn.execute(text("SELECT version FROM schema_migrations"))
+        }
+    required = {"001_agent_idempotency", "002_conversation_ownership"}
+    missing = required - versions
+    if missing:
+        raise RuntimeError(f"生产数据库缺少迁移版本: {', '.join(sorted(missing))}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期 — 启动时建表，关闭时清理"""
@@ -64,6 +80,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("生产环境必须配置 APP_SECRET")
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema()
+    ensure_production_schema()
     logger.info("数据库表已初始化")
     if settings.EMBEDDED_SCHEDULER_ENABLED:
         start_scheduler()
@@ -85,8 +102,8 @@ app = FastAPI(
 # CORS — 允许小程序和开发环境访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

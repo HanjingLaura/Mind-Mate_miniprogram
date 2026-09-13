@@ -13,6 +13,9 @@ from config import settings
 from models import AgentRun
 
 
+STAGE_ORDER = ("understand", "plan", "act", "verify", "reflect")
+
+
 def _stage_history(run: AgentRun) -> list[str]:
     try:
         snapshot = json.loads(run.input_snapshot or "{}")
@@ -25,7 +28,8 @@ def _stage_history(run: AgentRun) -> list[str]:
 
 
 def advance_agent_stage(db: Session, run: AgentRun, stage: str) -> AgentRun:
-    """Persist an auditable stage transition before the next side effect."""
+    """Persist the next auditable stage before the next side effect."""
+    _validate_next_stage(run.stage, stage)
     _assert_run_lease(db, run)
     try:
         snapshot = json.loads(run.input_snapshot or "{}")
@@ -41,7 +45,8 @@ def advance_agent_stage(db: Session, run: AgentRun, stage: str) -> AgentRun:
 
 
 def verify_agent_run(db: Session, run: AgentRun, checks: dict[str, bool]) -> dict:
-    """Persist a real post-commit verification result before reflection."""
+    """Verify flushed database facts inside the final atomic transaction."""
+    _validate_next_stage(run.stage, "verify")
     _assert_run_lease(db, run)
     snapshot = json.loads(run.input_snapshot or "{}")
     history = snapshot.setdefault("stage_history", [run.stage])
@@ -66,6 +71,13 @@ def _assert_run_lease(db: Session, run: AgentRun) -> None:
     ).first()
     if current is None:
         raise RuntimeError("Agent run lease is no longer owned")
+
+
+def _validate_next_stage(current: str, target: str) -> None:
+    if target not in STAGE_ORDER or current not in STAGE_ORDER:
+        raise ValueError(f"Unknown AgentRun stage: {current} -> {target}")
+    if STAGE_ORDER.index(target) not in {STAGE_ORDER.index(current), STAGE_ORDER.index(current) + 1}:
+        raise ValueError(f"Invalid AgentRun stage transition: {current} -> {target}")
 
 
 def recover_stale_agent_runs(db: Session) -> int:
@@ -157,6 +169,7 @@ def finish_agent_run(
 ) -> AgentRun:
     _assert_run_lease(db, run)
     if stage:
+        _validate_next_stage(run.stage, stage)
         snapshot = json.loads(run.input_snapshot or "{}")
         history = snapshot.setdefault("stage_history", [run.stage])
         if not history or history[-1] != stage:

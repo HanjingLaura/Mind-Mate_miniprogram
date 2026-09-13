@@ -251,8 +251,14 @@ def _ensure_user(db: Session, openid: str) -> User:
     if not user:
         user = User(openid=openid)
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        try:
+            db.commit()
+            db.refresh(user)
+        except IntegrityError:
+            db.rollback()
+            user = db.query(User).filter(User.openid == openid).first()
+            if user is None:
+                raise
     return user
 
 
@@ -265,8 +271,17 @@ def _ensure_conversation(db: Session, user_id: int, target_date: date) -> Conver
     if not conv:
         conv = Conversation(user_id=user_id, date=target_date, title=f"目标追踪 {target_date}")
         db.add(conv)
-        db.commit()
-        db.refresh(conv)
+        try:
+            db.commit()
+            db.refresh(conv)
+        except IntegrityError:
+            db.rollback()
+            conv = db.query(Conversation).filter(
+                Conversation.user_id == user_id,
+                Conversation.date == target_date,
+            ).first()
+            if conv is None:
+                raise
     return conv
 
 
@@ -832,6 +847,8 @@ async def get_messages(
     trusted_openid: str | None = Depends(get_trusted_openid),
 ):
     """获取某次对话的所有消息"""
+    if trusted_openid is None and not settings.ALLOW_INSECURE_DEV_OPENID:
+        raise HTTPException(status_code=401, detail="请先登录")
     if trusted_openid is None:
         messages = db.query(Message).filter(
             Message.conversation_id == conversation_id
