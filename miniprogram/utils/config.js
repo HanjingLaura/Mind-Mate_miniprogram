@@ -6,8 +6,8 @@ try {
   module.exports = {
     SUBSCRIBE_TEMPLATE_ID: '',
     USE_CLOUD: false,
-    CLOUD_ENV_ID: 'mindmate-miniprogram-d5abb807de8',
-    CLOUD_SERVICE_NAME: 'mindmate-miniprogram',
+    CLOUD_ENV_ID: 'prod-d1gf0x42k6f1d821b',
+    CLOUD_SERVICE_NAME: 'django-rt60',
     DIRECT_API_BASE: 'http://localhost:8000',
   }
 }
