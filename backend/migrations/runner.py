@@ -106,6 +106,18 @@ def run_pending_migrations() -> None:
                 elif version == "003_reminder_leases":
                     _add_column_if_missing(
                         conn,
+                        "subscribe_auths",
+                        "scene",
+                        "scene VARCHAR(64) DEFAULT 'general'",
+                    )
+                    _add_column_if_missing(
+                        conn,
+                        "subscribe_auths",
+                        "used_at",
+                        "used_at DATETIME NULL",
+                    )
+                    _add_column_if_missing(
+                        conn,
                         "scheduled_reminders",
                         "processing_token",
                         "processing_token VARCHAR(64) NOT NULL DEFAULT ''",

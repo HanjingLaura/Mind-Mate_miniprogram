@@ -5,6 +5,7 @@ import re
 import logging
 from typing import Any, AsyncGenerator, Callable
 
+from config import settings
 from services.message_content import strip_task_protocol
 from services.model_gateway import complete, stream_completion
 
@@ -100,13 +101,29 @@ async def stream_chat(
     provider_callback: Callable[[str], None] | None = None,
 ) -> AsyncGenerator[str, None]:
     """流式调用模型网关，返回纯文本片段。"""
-    system_content = SYSTEM_PROMPT
+    context_suffix = ""
     if task_context:
-        system_content += f"\n\n{task_context}"
+        context_suffix += f"\n\n{task_context}"
     if supervision_context:
-        system_content += f"\n\n{supervision_context}"
+        context_suffix += f"\n\n{supervision_context}"
 
-    full_messages = [{"role": "system", "content": system_content}] + messages
+    def _message_size(message: dict[str, Any]) -> int:
+        return len(json.dumps(message.get("content", ""), ensure_ascii=False))
+
+    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + list(messages)
+    budget = settings.CHAT_TOTAL_CONTEXT_CHAR_BUDGET
+    while len(full_messages) > 2 and sum(_message_size(message) for message in full_messages) + len(context_suffix) > budget:
+        full_messages.pop(1)
+
+    message_size = sum(_message_size(message) for message in full_messages[1:])
+    available_system = max(0, budget - message_size - len(SYSTEM_PROMPT))
+    full_messages[0]["content"] = SYSTEM_PROMPT + context_suffix[:available_system]
+
+    if len(full_messages) > 1 and sum(_message_size(message) for message in full_messages) > budget:
+        latest = full_messages[-1]
+        if isinstance(latest.get("content"), str):
+            available_latest = max(1, budget - _message_size(full_messages[0]))
+            latest["content"] = latest["content"][:available_latest]
     has_image = any(isinstance(message.get("content"), list) for message in messages)
     try:
         async for chunk in stream_completion(

@@ -499,13 +499,23 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
     # Recover only expired processing leases. The token prevents an old worker
     # from overwriting a newer scheduler attempt after this recovery runs.
     stale_processing = db.query(ScheduledReminder).filter(
-        ScheduledReminder.message_id.isnot(None),
         ScheduledReminder.status == "processing",
-        ScheduledReminder.processing_token != "",
         ScheduledReminder.sent_at.isnot(None),
         ScheduledReminder.sent_at < pending_cutoff,
     ).all()
     for reminder in stale_processing:
+        if reminder.message_id is None:
+            db.query(ScheduledReminder).filter(
+                ScheduledReminder.id == reminder.id,
+                ScheduledReminder.status == "processing",
+                ScheduledReminder.processing_token == reminder.processing_token,
+            ).update({
+                "status": "pending",
+                "channel": "",
+                "sent_at": None,
+                "processing_token": "",
+            }, synchronize_session=False)
+            continue
         channel = "wechat_unknown" if reminder.channel == "wechat_pending" else "in_app"
         db.query(ScheduledReminder).filter(
             ScheduledReminder.id == reminder.id,
@@ -802,8 +812,9 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     agent_provider = "fallback"
                     agent_output = {"message": message, "reason": "model_unavailable"}
 
-                # 消息与去重日志同一事务落库；任何一个写入失败都不会留下
-                # “有消息无日志”的崩溃窗口。
+                # Fence the side effect before saving the message and de-dup log.
+                # The stage update holds the row lock until this transaction commits.
+                advance_agent_stage(db, agent_run, "act")
                 msg, supervision_log = save_supervision_as_message(
                     db,
                     user.id,
@@ -811,8 +822,6 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                     effective_date,
                     supervision_type,
                 )
-                advance_agent_stage(db, agent_run, "act")
-
                 # 尝试推送订阅消息
                 channel = "in_app"
                 template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID

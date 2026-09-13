@@ -77,6 +77,23 @@ def ensure_production_schema():
     missing = required - versions
     if missing:
         raise RuntimeError(f"生产数据库缺少迁移版本: {', '.join(sorted(missing))}")
+    required_columns = {
+        "messages": {"request_id"},
+        "agent_runs": {"lease_token"},
+        "subscribe_auths": {"scene", "used_at"},
+        "scheduled_reminders": {"processing_token"},
+    }
+    inspector = inspect(engine)
+    missing_tables = [table for table in required_columns if not inspector.has_table(table)]
+    if missing_tables:
+        raise RuntimeError(f"生产数据库缺少基础表: {', '.join(sorted(missing_tables))}")
+    missing_columns = {
+        table: sorted(columns - {column["name"] for column in inspector.get_columns(table)})
+        for table, columns in required_columns.items()
+    }
+    missing_columns = {table: columns for table, columns in missing_columns.items() if columns}
+    if missing_columns:
+        raise RuntimeError(f"生产数据库结构与迁移记录不一致: {missing_columns}")
 
 
 @asynccontextmanager
