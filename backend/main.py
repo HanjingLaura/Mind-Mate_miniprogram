@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def ensure_runtime_schema():
-    """补齐开发期 SQLite 老库缺失字段；正式库后续应迁移到 Alembic。"""
+    """补齐开发期 SQLite 老库缺失字段；正式库由 migrations.runner 管理。"""
     if not str(engine.url).startswith("sqlite"):
         return
 
