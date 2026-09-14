@@ -94,6 +94,23 @@ SUPERVISION_PROMPTS = {
 }
 
 
+def _bound_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the complete provider request within one shared character budget."""
+    def _message_size(message: dict[str, Any]) -> int:
+        return len(json.dumps(message.get("content", ""), ensure_ascii=False))
+
+    bounded = [dict(message) for message in messages]
+    budget = settings.CHAT_TOTAL_CONTEXT_CHAR_BUDGET
+    while len(bounded) > 2 and sum(_message_size(message) for message in bounded) > budget:
+        bounded.pop(1)
+    if len(bounded) > 1 and sum(_message_size(message) for message in bounded) > budget:
+        latest = bounded[-1]
+        if isinstance(latest.get("content"), str):
+            available_latest = max(1, budget - _message_size(bounded[0]))
+            latest["content"] = latest["content"][:available_latest]
+    return bounded
+
+
 async def stream_chat(
     messages: list[dict[str, Any]],
     supervision_context: str | None = None,
@@ -107,23 +124,10 @@ async def stream_chat(
     if supervision_context:
         context_suffix += f"\n\n{supervision_context}"
 
-    def _message_size(message: dict[str, Any]) -> int:
-        return len(json.dumps(message.get("content", ""), ensure_ascii=False))
-
-    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}] + list(messages)
-    budget = settings.CHAT_TOTAL_CONTEXT_CHAR_BUDGET
-    while len(full_messages) > 2 and sum(_message_size(message) for message in full_messages) + len(context_suffix) > budget:
-        full_messages.pop(1)
-
-    message_size = sum(_message_size(message) for message in full_messages[1:])
-    available_system = max(0, budget - message_size - len(SYSTEM_PROMPT))
-    full_messages[0]["content"] = SYSTEM_PROMPT + context_suffix[:available_system]
-
-    if len(full_messages) > 1 and sum(_message_size(message) for message in full_messages) > budget:
-        latest = full_messages[-1]
-        if isinstance(latest.get("content"), str):
-            available_latest = max(1, budget - _message_size(full_messages[0]))
-            latest["content"] = latest["content"][:available_latest]
+    full_messages = _bound_prompt([
+        {"role": "system", "content": SYSTEM_PROMPT + context_suffix},
+        *messages,
+    ])
     has_image = any(isinstance(message.get("content"), list) for message in messages)
     try:
         async for chunk in stream_completion(
@@ -269,11 +273,10 @@ async def generate_supervision(
         prompt += f"\n\n执行记忆（数据库事实）：{memory_context}\n只按事实追责；没有记录不能说成没有行动。"
 
     try:
-        content, provider = await complete(
-            [
+        content, provider = await complete(_bound_prompt([
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
-            ],
+            ]),
             temperature=0.9,
             max_tokens=150,
         )

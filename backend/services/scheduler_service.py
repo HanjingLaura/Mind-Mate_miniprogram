@@ -24,6 +24,7 @@ from models import (
     ScheduledReminder,
     SupervisionLog,
     AnalyticsEvent,
+    AgentRun,
 )
 from services.execution_memory import build_execution_memory, format_supervision_memory
 from services.llm_service import generate_supervision
@@ -38,6 +39,17 @@ from services.time_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _lock_agent_run_lease(db: Session, agent_run: AgentRun) -> None:
+    """Fence post-provider state writes behind the current AgentRun lease."""
+    current = db.query(AgentRun).filter(
+        AgentRun.id == agent_run.id,
+        AgentRun.status == "running",
+        AgentRun.lease_token == agent_run.lease_token,
+    ).with_for_update().first()
+    if current is None:
+        raise RuntimeError("Agent run lease is no longer owned")
 
 
 def _wechat_channel(result: bool | None) -> str:
@@ -574,6 +586,7 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
         effective_date = get_effective_date(remind_at)
         visible_text = f"到时间了：{reminder.content}。先从最小一步开始。"
 
+        processing_token = ""
         try:
             # Claim the reminder atomically before creating the in-app message.
             # The token fences stale workers after a lease recovery.
@@ -696,15 +709,31 @@ async def _deliver_due_scheduled_reminders(db: Session, now: datetime) -> list[d
             current = db.query(ScheduledReminder).filter(
                 ScheduledReminder.id == reminder.id,
             ).first()
-            # If the in-app message was committed, do not risk a duplicate
-            # external send; finalize it as an in-app delivery.
-            if current and current.message_id:
-                current.status = "sent"
-                current.channel = current.channel if current.channel in {
-                    "wechat_pending", "wechat_failed", "wechat_unknown"
-                } else "in_app"
-                current.sent_at = utc_now_naive()
-                current.processing_token = ""
+            if current and processing_token:
+                if current.message_id:
+                    db.query(ScheduledReminder).filter(
+                        ScheduledReminder.id == current.id,
+                        ScheduledReminder.status == "processing",
+                        ScheduledReminder.processing_token == processing_token,
+                    ).update({
+                        "status": "sent",
+                        "channel": current.channel if current.channel in {
+                            "wechat_pending", "wechat_failed", "wechat_unknown"
+                        } else "in_app",
+                        "sent_at": utc_now_naive(),
+                        "processing_token": "",
+                    }, synchronize_session=False)
+                else:
+                    db.query(ScheduledReminder).filter(
+                        ScheduledReminder.id == current.id,
+                        ScheduledReminder.status == "processing",
+                        ScheduledReminder.processing_token == processing_token,
+                    ).update({
+                        "status": "pending",
+                        "channel": "",
+                        "sent_at": None,
+                        "processing_token": "",
+                    }, synchronize_session=False)
                 db.commit()
 
     return results
@@ -841,6 +870,7 @@ async def run_supervision_cycle(db: Session) -> list[dict]:
                                 "time2": {"value": now.strftime("%Y-%m-%d %H:%M")},
                             },
                         )
+                        _lock_agent_run_lease(db, agent_run)
                         if sent is True:
                             channel = "wechat"
                             supervision_log.channel = channel

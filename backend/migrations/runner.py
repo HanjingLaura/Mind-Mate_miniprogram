@@ -81,6 +81,21 @@ def _ensure_conversation_index(conn) -> None:
     ))
 
 
+def _ensure_scheduled_reminder_index(conn) -> None:
+    unique_constraints = {
+        item.get("name") for item in inspect(conn).get_unique_constraints("scheduled_reminders")
+    }
+    indexes = {
+        item.get("name") for item in inspect(conn).get_indexes("scheduled_reminders")
+        if item.get("unique")
+    }
+    if "uq_scheduled_reminder_request" not in unique_constraints | indexes:
+        conn.execute(text(
+            "CREATE UNIQUE INDEX uq_scheduled_reminder_request "
+            "ON scheduled_reminders (user_id, idempotency_key)"
+        ))
+
+
 def run_pending_migrations() -> None:
     with engine.begin() as conn:
         with _migration_lock(conn):
@@ -122,6 +137,7 @@ def run_pending_migrations() -> None:
                         "processing_token",
                         "processing_token VARCHAR(64) NOT NULL DEFAULT ''",
                     )
+                    _ensure_scheduled_reminder_index(conn)
                 conn.execute(migrations.insert().values(
                     version=version,
                     applied_at=datetime.utcnow(),

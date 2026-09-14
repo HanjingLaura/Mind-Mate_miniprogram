@@ -94,6 +94,24 @@ def ensure_production_schema():
     missing_columns = {table: columns for table, columns in missing_columns.items() if columns}
     if missing_columns:
         raise RuntimeError(f"生产数据库结构与迁移记录不一致: {missing_columns}")
+    scheduled_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("scheduled_reminders")
+    }
+    processing_token = scheduled_columns["processing_token"]
+    if processing_token.get("nullable") or processing_token.get("default") is None:
+        raise RuntimeError("生产数据库 processing_token 约束不完整")
+    unique_names = {
+        item.get("name")
+        for item in inspector.get_unique_constraints("scheduled_reminders")
+    }
+    unique_names.update(
+        item.get("name")
+        for item in inspector.get_indexes("scheduled_reminders")
+        if item.get("unique")
+    )
+    if "uq_scheduled_reminder_request" not in unique_names:
+        raise RuntimeError("生产数据库缺少提醒幂等唯一约束")
 
 
 @asynccontextmanager
