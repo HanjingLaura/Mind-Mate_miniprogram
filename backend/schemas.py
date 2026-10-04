@@ -8,15 +8,16 @@
 from datetime import date, time, datetime
 from typing import Optional, Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ────────────── User ──────────────
 
 class LoginRequest(BaseModel):
-    """登录请求"""
+    """登录请求 — 小程序用 code，跨端 App 用 device_id"""
     code: str = Field("", description="wx.login 获取的 code")
     openid: str = Field("", description="直接传入 openid（开发模式）")
+    device_id: str = Field("", max_length=128, description="跨端 App 设备身份")
 
 
 class UserBase(BaseModel):
@@ -58,9 +59,26 @@ class UserOut(BaseModel):
 class ChatRequest(BaseModel):
     """聊天请求"""
     openid: str = Field(..., min_length=1, description="用户 openid")
-    content: str = Field(..., min_length=1, max_length=2000, description="用户消息内容")
+    content: str = Field("", max_length=2000, description="用户消息内容")
+    image_url: str = Field("", max_length=2048, description="本次图片的临时 HTTPS 地址")
+    image_cloud_id: str = Field("", max_length=1024, description="云存储 fileID，用于历史展示")
     date: Optional[str] = Field(None, description="对话日期 YYYY-MM-DD，默认今天")
+    request_id: str = Field("", max_length=128, description="客户端请求幂等键")
     sync: bool = Field(False, description="云托管同步模式，返回完整JSON而非SSE流")
+
+    @model_validator(mode="after")
+    def require_text_or_image(self):
+        if not self.content.strip() and not self.image_url.strip():
+            raise ValueError("消息文字和图片不能同时为空")
+        url = self.image_url.strip()
+        if url and not (
+            url.startswith("https://")
+            or url.startswith("http://localhost")
+            or url.startswith("http://127.0.0.1")
+            or url.startswith("/uploads/")
+        ):
+            raise ValueError("图片地址必须使用 HTTPS 或本地上传路径")
+        return self
 
 
 class ChatMessageOut(BaseModel):
@@ -98,6 +116,7 @@ class TaskCheckInRequest(BaseModel):
     """任务打卡"""
     task_id: int = Field(..., gt=0)
     openid: str = Field(..., min_length=1)
+    completed: bool = Field(..., description="目标完成状态；重复请求必须保持幂等")
 
 
 class TaskCreateRequest(BaseModel):

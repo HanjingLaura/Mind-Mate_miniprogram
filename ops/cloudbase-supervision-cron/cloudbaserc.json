@@ -1,0 +1,22 @@
+{
+  "version": "2.0",
+  "envId": "prod-d1gf0x42k6f1d821b",
+  "functionRoot": "./functions",
+  "functions": [
+    {
+      "name": "mindmate-supervision-cron",
+      "type": "Event",
+      "handler": "index.main",
+      "runtime": "Nodejs20.19",
+      "timeout": 60,
+      "memorySize": 128,
+      "triggers": [
+        {
+          "name": "supervisionEveryMinute",
+          "type": "timer",
+          "config": "0 * * * * * *"
+        }
+      ]
+    }
+  ]
+}

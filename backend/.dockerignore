@@ -14,3 +14,9 @@ venv/
 *.md
 certs/
 *.pem
+*.p12
+*.key
+*.crt
+*.cer
+*.zip
+tests/

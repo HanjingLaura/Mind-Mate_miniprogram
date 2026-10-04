@@ -21,6 +21,13 @@ def utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def beijing_to_utc_naive(value: datetime) -> datetime:
+    """Convert a Beijing/local aware datetime to the DB's naive UTC format."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=BEIJING_TZ)
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def utc_naive_to_beijing(value: datetime | None) -> datetime | None:
     """Convert a legacy naive UTC database value to an aware Beijing timestamp."""
     if value is None:

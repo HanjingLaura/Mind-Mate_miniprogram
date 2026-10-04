@@ -12,6 +12,7 @@ from config import settings
 from database import get_db
 from models import User, SubscribeAuth
 from schemas import LoginRequest, UserOut, UserSettingsUpdate
+from services.auth_service import get_trusted_openid, issue_app_token, require_openid_match
 from services.user_state import normalize_vip_status
 
 router = APIRouter(prefix="/api/user", tags=["user"])
@@ -19,8 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/profile/{openid}", response_model=UserOut)
-async def get_profile(openid: str, db: Session = Depends(get_db)):
+async def get_profile(
+    openid: str,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
     """获取用户信息 — 不存在则自动创建"""
+    openid = require_openid_match(openid, trusted_openid)
     user = db.query(User).filter(User.openid == openid).first()
     if not user:
         user = User(openid=openid)
@@ -41,7 +47,11 @@ async def login(
         # wx.cloud.callContainer injects this trusted identity header when the
         # request comes from the bound Mini Program. Prefer it over exchanging
         # a temporary wx.login code through the public API.
-        resolved_openid = request.headers.get("x-wx-openid", "").strip() or req.openid
+        resolved_openid = request.headers.get("x-wx-openid", "").strip()
+        if not resolved_openid and req.device_id.strip():
+            resolved_openid = "app_" + hashlib.sha256(req.device_id.strip().encode()).hexdigest()[:24]
+        if not resolved_openid and req.openid and settings.ALLOW_INSECURE_DEV_OPENID:
+            resolved_openid = req.openid
 
         if not resolved_openid and req.code and settings.WECHAT_APPID and settings.WECHAT_SECRET:
             import httpx
@@ -65,6 +75,7 @@ async def login(
             not resolved_openid
             and req.code
             and not (settings.WECHAT_APPID and settings.WECHAT_SECRET)
+            and settings.ALLOW_INSECURE_DEV_OPENID
         ):
             resolved_openid = "dev_" + hashlib.md5(req.code.encode()).hexdigest()[:12]
 
@@ -77,10 +88,24 @@ async def login(
             db.add(user)
             db.commit()
             db.refresh(user)
-            return {"user_id": user.id, "openid": resolved_openid, "is_new": True, "is_vip": user.is_vip}
+            token = issue_app_token(resolved_openid)
+            return {
+                "user_id": user.id,
+                "openid": resolved_openid,
+                "token": token,
+                "is_new": True,
+                "is_vip": user.is_vip,
+            }
 
         user = normalize_vip_status(db, user)
-        return {"user_id": user.id, "openid": resolved_openid, "is_new": False, "is_vip": user.is_vip}
+        token = issue_app_token(resolved_openid)
+        return {
+            "user_id": user.id,
+            "openid": resolved_openid,
+            "token": token,
+            "is_new": False,
+            "is_vip": user.is_vip,
+        }
 
     except HTTPException:
         raise
@@ -95,9 +120,11 @@ async def update_settings(
     openid: str,
     settings_update: UserSettingsUpdate,
     db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
 ):
     """更新用户自定义作息时间"""
     try:
+        openid = require_openid_match(openid, trusted_openid)
         user = db.query(User).filter(User.openid == openid).first()
         if not user:
             raise HTTPException(status_code=404, detail="用户不存在")
@@ -134,20 +161,46 @@ class SubscribeAuthRequest(BaseModel):
 
 
 @router.post("/subscribe_auth")
-async def subscribe_auth(req: SubscribeAuthRequest, db: Session = Depends(get_db)):
+async def subscribe_auth(
+    req: SubscribeAuthRequest,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
     """记录用户授权订阅消息（一次性授权）"""
-    user = db.query(User).filter(User.openid == req.openid).first()
+    openid = require_openid_match(req.openid, trusted_openid)
+    user = db.query(User).filter(User.openid == openid).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    template_id = req.template_id or settings.WECHAT_SUBSCRIBE_TEMPLATE_ID
+    template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID or "app-inapp"
     auth = SubscribeAuth(user_id=user.id, template_id=template_id, scene=req.scene or "general")
     db.add(auth)
     db.commit()
 
     unused_count = db.query(SubscribeAuth).filter(
         SubscribeAuth.user_id == user.id,
+        SubscribeAuth.template_id == template_id,
         SubscribeAuth.used == False,
     ).count()
 
     return {"success": True, "unused_count": unused_count}
+
+
+@router.get("/subscribe_status/{openid}")
+async def subscribe_status(
+    openid: str,
+    db: Session = Depends(get_db),
+    trusted_openid: str | None = Depends(get_trusted_openid),
+):
+    """Return remaining one-time WeChat subscription-message grants."""
+    openid = require_openid_match(openid, trusted_openid)
+    user = db.query(User).filter(User.openid == openid).first()
+    if not user:
+        return {"unused_count": 0, "enabled": False}
+    template_id = settings.WECHAT_SUBSCRIBE_TEMPLATE_ID or "app-inapp"
+    unused_count = db.query(SubscribeAuth).filter(
+        SubscribeAuth.user_id == user.id,
+        SubscribeAuth.template_id == template_id,
+        SubscribeAuth.used == False,
+    ).count()
+    return {"unused_count": unused_count, "enabled": unused_count > 0}
